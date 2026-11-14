@@ -53,8 +53,8 @@ katexCss = katexCss.replace(/src:url\(fonts\/([^)]+?)\.woff2\) format\("woff2"\)
 if (/url\(fonts\//.test(katexCss)) throw new Error('KaTeX CSS still references external fonts');
 
 const css = src('styles.css');
-const sample = JSON.stringify(src('sample.md')).replace(/</g, '\\u003c');
-const appFor = variant => escScript(src('app.js').replace('/*@@PDF2MD@@*/', () => src('pdf2md.js')).replace("'@@VARIANT@@'", () => JSON.stringify(variant)).replace("/*@@SAMPLE@@*/''", () => sample));
+const sample = JSON.stringify({ es: src('sample.md'), en: src('sample.en.md') }).replace(/</g, '\\u003c');
+const appFor = variant => escScript(src('app.js').replace('/*@@PDF2MD@@*/', () => src('pdf2md.js')).replace("'@@VARIANT@@'", () => JSON.stringify(variant)).replace('/*@@SAMPLE@@*/{}', () => sample).replace('/*@@I18N@@*/', () => src('i18n.js')));
 const template = src('template.html');
 const katexBlock = `<script type="text/plain" id="katex-css">${katexCss.replace(/<\//g, '<\\/')}</script>`;
 

@@ -184,6 +184,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
 }
 .ui-seg input:checked + span { background: var(--accent); color: var(--accent-ink); }
 .ui-seg input:focus-visible + span { outline: 2px solid var(--focus); outline-offset: 1px; }
+.ui-lang { flex: none; padding: 2px; }
+.ui-lang span { height: 28px; padding: 0 10px; font-size: 12.5px; letter-spacing: .03em; }
 .ui-seg-format { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .ui-seg-format span { height: 40px; flex-direction: column; gap: 1px; font-size: 12px; letter-spacing: -.01em; padding: 0 2px; }
 .ui-seg-format small { font-size: 10.5px; font-weight: 500; opacity: .8; letter-spacing: .02em; }

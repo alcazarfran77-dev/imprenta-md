@@ -481,8 +481,8 @@ async function pdfToMarkdown(file, base, onProgress) {
   try {
     pdf = await pdfjsLib.getDocument({ data, isEvalSupported: false, disableFontFace: true, fontExtraProperties: true, isOffscreenCanvasSupported: false, useSystemFonts: false, verbosity: 0 }).promise;
   } catch (e) {
-    if (e && e.name === 'PasswordException') throw new Error('el PDF está protegido con contraseña');
-    throw new Error('no se pudo leer como PDF');
+    if (e && e.name === 'PasswordException') throw new Error(t('pdf.password'));
+    throw new Error(t('pdf.unreadable'));
   }
   const shared = { images: 0, scanned: 0, raster: 0, seen: new Set() };
   const pages = [];
@@ -536,7 +536,7 @@ async function pdfToMarkdown(file, base, onProgress) {
   for (const L of lines) { const b = pageBox.get(L.page) || { l: Infinity, r: 0 }; b.l = Math.min(b.l, L.x); b.r = Math.max(b.r, L.x1); pageBox.set(L.page, b); }
 
   const out = [];
-  const imgDir = safeFile(base).replace(/\s+/g, '-') + '-imagenes';
+  const imgDir = safeFile(base).replace(/\s+/g, '-') + '-' + t('pdf.imgDir');
   const images = [];
   let para = null, list = null, listXs = [];
   const flushPara = () => {
@@ -567,7 +567,7 @@ async function pdfToMarkdown(file, base, onProgress) {
       flush(); endList();
       const path = imgDir + '/pag' + L.page + '-' + L.n + '.' + L.ext;
       images.push({ path, url: L.url });
-      out.push(L.wide ? '![Imagen ' + L.n + '](' + path + ')' : '<img src="' + path + '" alt="Imagen ' + L.n + '" width="' + Math.round(L.w * 96 / 72) + '">');
+      out.push(L.wide ? '![' + t('pdf.imgAlt', L.n) + '](' + path + ')' : '<img src="' + path + '" alt="' + t('pdf.imgAlt', L.n) + '" width="' + Math.round(L.w * 96 / 72) + '">');
       continue;
     }
     const prev = i && stream[i - 1].type === 'line' ? stream[i - 1] : null;

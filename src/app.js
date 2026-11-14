@@ -2,7 +2,9 @@
 'use strict';
 
 const VARIANT = '@@VARIANT@@';
-const SAMPLE_MD = /*@@SAMPLE@@*/'';
+const SAMPLES = /*@@SAMPLE@@*/{};
+const isSample = md => md === SAMPLES.es || md === SAMPLES.en;
+/*@@I18N@@*/
 
 /* =====================================================================
    Helpers
@@ -12,7 +14,7 @@ const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const nextFrame = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-const fmtNum = (n, d = 0) => Number(n).toLocaleString('es-MX', { minimumFractionDigits: d, maximumFractionDigits: d });
+const fmtNum = (n, d = 0) => Number(n).toLocaleString(lang() === 'en' ? 'en-US' : 'es-MX', { minimumFractionDigits: d, maximumFractionDigits: d });
 const store = {
   get(k, d) { try { const v = localStorage.getItem('imprenta-md:' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
   set(k, v) { try { localStorage.setItem('imprenta-md:' + k, JSON.stringify(v)); } catch (e) { /* storage unavailable */ } }
@@ -32,20 +34,21 @@ function canvasToBlob(c, type, q) { return new Promise((res, rej) => c.toBlob(b 
    ===================================================================== */
 const MM = 96 / 25.4;
 const PAGE_SIZES = {
-  letter: { label: 'Carta', w: 215.9, h: 279.4 },
-  a4: { label: 'A4', w: 210, h: 297 },
-  oficio: { label: 'Oficio (México)', w: 216, h: 340 },
-  legal: { label: 'Legal', w: 215.9, h: 355.6 }
+  letter: { w: 215.9, h: 279.4 },
+  a4: { w: 210, h: 297 },
+  oficio: { w: 216, h: 340 },
+  legal: { w: 215.9, h: 355.6 }
 };
 const MARGINS = {
-  estrecho: { label: 'Estrechos', mm: 12.7 },
-  moderado: { label: 'Moderados', mm: 19.05 },
-  normal: { label: 'Normales', mm: 25.4 }
+  estrecho: { mm: 12.7 },
+  moderado: { mm: 19.05 },
+  normal: { mm: 25.4 }
 };
-const DEFAULTS = { format: 'pdf', theme: 'github', page: 'letter', margin: 'normal', orient: 'portrait', fs: 11, pdfres: 2, pdftext: true, pdfnum: true, docxnum: true, imgtype: 'png', imgres: 2, imgmode: 'single', mdimg: 'zip', fm: 'hide', zoom: 'fit' };
+const DEFAULTS = { format: 'pdf', theme: 'github', page: 'letter', margin: 'normal', orient: 'portrait', fs: 11, pdfres: 2, pdftext: true, pdfnum: true, docxnum: true, imgtype: 'png', imgres: 2, lang: (navigator.language || 'es').toLowerCase().startsWith('es') ? 'es' : 'en', imgmode: 'single', mdimg: 'zip', fm: 'hide', zoom: 'fit' };
 const opts = Object.assign({}, DEFAULTS, store.get('opts', {}));
 for (const k of Object.keys(DEFAULTS)) if (typeof opts[k] !== typeof DEFAULTS[k]) opts[k] = DEFAULTS[k];
 if (!['pdf', 'docx', 'image', 'md'].includes(opts.format)) opts.format = DEFAULTS.format;
+if (!['es', 'en'].includes(opts.lang)) opts.lang = DEFAULTS.lang;
 if (!PAGE_SIZES[opts.page]) opts.page = DEFAULTS.page;
 if (!MARGINS[opts.margin]) opts.margin = DEFAULTS.margin;
 
@@ -65,7 +68,7 @@ const libPromises = {};
 function loadLib(name) {
   if (libPromises[name]) return libPromises[name];
   const def = LIBS[name];
-  if (!def) return Promise.reject(new Error('Falta la librería ' + name));
+  if (!def) return Promise.reject(new Error(t('lib.missing', name)));
   libPromises[name] = new Promise((resolve, reject) => {
     const s = document.createElement('script');
     let blobUrl = null;
@@ -75,7 +78,7 @@ function loadLib(name) {
       s.src = blobUrl;
     } else s.src = def.url;
     s.onload = () => { if (blobUrl) URL.revokeObjectURL(blobUrl); resolve(); };
-    s.onerror = () => { delete libPromises[name]; reject(new Error('No se pudo cargar «' + name + '». Revisa tu conexión a internet.')); };
+    s.onerror = () => { delete libPromises[name]; reject(new Error(t('lib.failed', name))); };
     document.head.appendChild(s);
   });
   return libPromises[name];
@@ -102,14 +105,14 @@ const dlPromise = hasHost ? Promise.resolve().then(() => window.claude.use('down
 async function saveFile(filename, blob) {
   if (hasHost) {
     const dl = await dlPromise;
-    if (!dl) { toast('Esta vista no permite descargar archivos. Abre la app desde su archivo .html para descargar.', true); return false; }
-    try { await dl.save({ filename, data: blob }); toast('Guardado: ' + filename); return true; }
+    if (!dl) { toast(t('save.noHost'), true); return false; }
+    try { await dl.save({ filename, data: blob }); toast(t('save.saved', filename)); return true; }
     catch (e) {
       const code = e && e.code;
-      if (code === 'declined') toast('Descarga cancelada.');
-      else if (code === 'rate_limited') toast('Ya hay una descarga pendiente de confirmar.', true);
-      else if (code === 'too_large') toast('El archivo es demasiado grande para esta vista. Prueba con menor resolución.', true);
-      else toast('No se pudo guardar el archivo (' + (code || (e && e.message) || e) + ').', true);
+      if (code === 'declined') toast(t('save.declined'));
+      else if (code === 'rate_limited') toast(t('save.pending'), true);
+      else if (code === 'too_large') toast(t('save.tooLarge'), true);
+      else toast(t('save.failed', code || (e && e.message) || e), true);
       return false;
     }
   }
@@ -117,7 +120,7 @@ async function saveFile(filename, blob) {
   const a = document.createElement('a'); a.href = url; a.download = filename; a.rel = 'noopener';
   document.body.appendChild(a); a.click();
   setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 8000);
-  toast('Descargado: ' + filename);
+  toast(t('save.downloaded', filename));
   return true;
 }
 
@@ -245,7 +248,7 @@ function findAsset(src, docPath) {
 }
 function missingBox(img, label) {
   const span = document.createElement('span'); span.className = 'img-missing';
-  span.textContent = '[Imagen: ' + label + ']';
+  span.textContent = t('img.missing', label);
   img.replaceWith(span);
 }
 function waitImg(img) {
@@ -283,7 +286,7 @@ async function resolveImages(root, doc, w) {
     if (img.naturalWidth === 0) {
       const src = img.getAttribute('src') || '';
       if (img.dataset.remote) { w.remote = w.remote.filter(u => u !== src); w.remoteBroken.push(src); }
-      missingBox(img, img.getAttribute('alt') || src.split('/').pop() || 'sin nombre');
+      missingBox(img, img.getAttribute('alt') || src.split('/').pop() || t('img.noName'));
     }
   }
 }
@@ -303,7 +306,7 @@ async function renderMermaid(root, store) {
       const { svg } = await window.mermaid.render(id, store.mermaid[Number(box.getAttribute('data-i'))] || '');
       box.innerHTML = svg;
     } catch (e) {
-      box.innerHTML = '<pre class="mermaid-error">' + esc('Diagrama Mermaid con errores: ' + ((e && e.message) || e)) + '</pre>';
+      box.innerHTML = '<pre class="mermaid-error">' + esc(t('mermaid.error', (e && e.message) || e)) + '</pre>';
       const junk = document.getElementById('d' + id) || document.getElementById(id); if (junk) junk.remove();
     }
   }
@@ -384,7 +387,7 @@ function addDoc(name, md, path, enc) {
   return d;
 }
 function persistDocs() {
-  const data = state.docs.map(d => ({ name: d.name, md: d.md, path: d.path, enc: d.enc }));
+  const data = state.docs.map(d => ({ name: d.name, md: d.md, path: d.path, enc: d.enc, pdfInfo: d.pdfInfo }));
   const size = JSON.stringify(data).length;
   if (size < 1500000) { store.set('docs', data); store.set('current', state.current); }
 }
@@ -394,7 +397,7 @@ function renderTabs() {
     const tab = document.createElement('div'); tab.className = 'ui-tab'; tab.setAttribute('role', 'tab');
     tab.setAttribute('aria-selected', String(i === state.current)); tab.tabIndex = 0; tab.title = d.path;
     const nm = document.createElement('span'); nm.className = 'ui-tab-name'; nm.textContent = d.name;
-    const x = document.createElement('button'); x.type = 'button'; x.className = 'ui-tab-x'; x.setAttribute('aria-label', 'Cerrar ' + d.name);
+    const x = document.createElement('button'); x.type = 'button'; x.className = 'ui-tab-x'; x.setAttribute('aria-label', t('tab.close', d.name));
     x.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
     x.addEventListener('click', ev => { ev.stopPropagation(); closeDoc(i); });
     tab.addEventListener('click', () => selectDoc(i));
@@ -403,7 +406,7 @@ function renderTabs() {
   });
   const n = state.docs.length;
   els.exportAll.hidden = n < 2;
-  if (n >= 2) els.exportAll.textContent = 'Convertir los ' + n + ' documentos (ZIP)';
+  if (n >= 2) els.exportAll.textContent = t('all.zip', n);
 }
 function selectDoc(i) {
   if (i < 0 || i >= state.docs.length) i = state.docs.length ? 0 : -1;
@@ -411,7 +414,7 @@ function selectDoc(i) {
   const d = current();
   els.editor.value = d ? d.md : '';
   els.editor.disabled = !d;
-  els.srcEnc.textContent = d ? d.enc : '';
+  els.srcEnc.textContent = d ? (d.enc === 'pdf' || d.enc === 'Desde PDF' ? t('src.fromPdf') : d.enc) : '';
   renderTabs(); updateOutName(); persistDocs();
   return render();
 }
@@ -426,21 +429,22 @@ function updateSrcStats() {
   const d = current();
   if (!d) { els.srcStats.textContent = ''; return; }
   const lines = d.md.split('\n').length;
-  els.srcStats.textContent = fmtNum(lines) + ' líneas · ' + fmtNum(d.md.length) + ' caracteres';
+  els.srcStats.textContent = t('src.stats', fmtNum(lines), fmtNum(d.md.length));
 }
 
 /* ---------- options UI ---------- */
-function fillSelect(sel, map, val) {
-  sel.replaceChildren(...Object.entries(map).map(([k, v]) => { const o = document.createElement('option'); o.value = k; o.textContent = v.label; return o; }));
+function fillSelect(sel, map, val, prefix) {
+  sel.replaceChildren(...Object.keys(map).map(k => { const o = document.createElement('option'); o.value = k; o.textContent = t(prefix + k); return o; }));
   sel.value = val;
 }
 function syncOptionsUI() {
-  fillSelect($('#opt-page'), PAGE_SIZES, opts.page);
-  fillSelect($('#opt-margin'), MARGINS, opts.margin);
+  applyPageTexts();
+  fillSelect($('#opt-page'), PAGE_SIZES, opts.page, 'page.');
+  fillSelect($('#opt-margin'), MARGINS, opts.margin, 'margin.');
   $('#opt-theme').value = opts.theme;
   $('#opt-fm').value = opts.fm;
   $('#zoom').value = String(opts.zoom);
-  const radios = { format: opts.format, orient: opts.orient, fs: String(opts.fs), pdfres: String(opts.pdfres), imgtype: opts.imgtype, imgres: String(opts.imgres), imgmode: opts.imgmode, mdimg: opts.mdimg };
+  const radios = { format: opts.format, orient: opts.orient, fs: String(opts.fs), pdfres: String(opts.pdfres), imgtype: opts.imgtype, imgres: String(opts.imgres), imgmode: opts.imgmode, mdimg: opts.mdimg, lang: lang() };
   for (const [name, v] of Object.entries(radios)) { const r = $('input[name="' + name + '"][value="' + v + '"]'); if (r) r.checked = true; }
   $('#opt-pdftext').checked = opts.pdftext; $('#opt-pdfnum').checked = opts.pdfnum; $('#opt-docxnum').checked = opts.docxnum;
   syncFormatUI();
@@ -461,6 +465,7 @@ function bindOptions() {
       const num = ['fs', 'pdfres', 'imgres'].includes(t.name);
       opts[t.name] = num ? Number(t.value) : t.value;
       if (t.name === 'format') { saveOpts(); syncFormatUI(); updateOutName(); return; }
+      if (t.name === 'lang') { saveOpts(); switchLang(); return; }
       if (t.name === 'orient' || t.name === 'fs') { relayout(); return; }
       saveOpts(); updateOutName();
     } else if (t.type === 'checkbox' && t.id.startsWith('opt-')) {
@@ -468,20 +473,26 @@ function bindOptions() {
     }
   });
 }
+function switchLang() {
+  syncOptionsUI();
+  // an untouched example follows the language
+  for (const d of state.docs) if (d.sample && isSample(d.md)) { d.md = SAMPLES[lang()]; d.name = d.path = t('sample.name'); }
+  if (state.docs.length) selectDoc(state.current); else { renderTabs(); updateMeta(); }
+}
 function saveOpts() { store.set('opts', opts); }
 function syncFormatUI() {
   $('#opts-pdf').hidden = opts.format !== 'pdf';
   $('#opts-docx').hidden = opts.format !== 'docx';
   $('#opts-image').hidden = opts.format !== 'image';
   $('#opts-md').hidden = opts.format !== 'md';
-  els.exportLabel.textContent = { pdf: 'Descargar PDF', docx: 'Descargar Word', image: 'Descargar imagen', md: 'Descargar Markdown' }[opts.format];
+  els.exportLabel.textContent = t('dl.' + opts.format);
 }
 function outExt() { return opts.format === 'docx' ? 'docx' : opts.format === 'pdf' ? 'pdf' : opts.format === 'md' ? 'md' : opts.imgtype; }
 function updateOutName() {
   const d = current();
   if (!d) { els.outName.textContent = ''; return; }
   let n = safeFile(baseName(d.name)) + '.' + outExt();
-  if (opts.format === 'image' && opts.imgmode === 'pages' && lastLayout.pages > 1) n = safeFile(baseName(d.name)) + '-paginas.zip';
+  if (opts.format === 'image' && opts.imgmode === 'pages' && lastLayout.pages > 1) n = safeFile(baseName(d.name)) + '-' + t('zip.pages') + '.zip';
   if (opts.format === 'md' && opts.mdimg === 'zip' && mdImageRefs(d).length) n = safeFile(baseName(d.name)) + '-markdown.zip';
   els.outName.textContent = n;
 }
@@ -602,33 +613,39 @@ function updateBreaks() {
     if (i === 0) return;
     const line = document.createElement('div'); line.className = 'break-line';
     line.style.top = (g.m + p[0]) + 'px';
-    const tag = document.createElement('span'); tag.className = 'break-tag'; tag.textContent = 'Pág. ' + (i + 1);
+    const tag = document.createElement('span'); tag.className = 'break-tag'; tag.textContent = t('break.tag', i + 1);
     line.appendChild(tag); els.breaks.appendChild(line);
   });
   updateMeta(); updateOutName();
 }
 function updateMeta() {
   const g = geom(); const d = current();
-  const ps = PAGE_SIZES[opts.page];
-  const dims = fmtNum(g.wmm, 1) + ' × ' + fmtNum(g.hmm, 1) + ' mm · márgenes ' + fmtNum(g.mmm / 10, 2) + ' cm';
+  const ps = { label: t('page.' + opts.page) };
+  const dims = fmtNum(g.wmm, 1) + ' × ' + fmtNum(g.hmm, 1) + ' mm · ' + t('meta.margins', fmtNum(g.mmm / 10, 2));
   if (!d) { els.meta.innerHTML = '<span><strong>' + esc(ps.label) + '</strong> · ' + dims + '</span>'; return; }
   let words = 0;
   const tw = document.createTreeWalker(els.doc, NodeFilter.SHOW_TEXT, { acceptNode: n => n.parentElement.closest('svg, style, .katex, .sr-only') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT });
   while (tw.nextNode()) words += (tw.currentNode.nodeValue.match(/[\p{L}\p{N}]+/gu) || []).length;
   els.meta.innerHTML = '<span><strong>' + esc(ps.label) + '</strong> · ' + dims + '</span>' +
-    '<span><strong>' + fmtNum(lastLayout.pages) + '</strong> ' + (lastLayout.pages === 1 ? 'página' : 'páginas') + '</span>' +
-    '<span><strong>' + fmtNum(words) + '</strong> palabras</span>';
+    '<span><strong>' + fmtNum(lastLayout.pages) + '</strong> ' + t('n.pages', lastLayout.pages) + '</span>' +
+    '<span><strong>' + fmtNum(words) + '</strong> ' + t('n.words', words) + '</span>';
 }
 
 function renderNotices(w) {
   const out = [];
   const cd = current();
-  if (cd && cd.pdfNotes) for (const n of cd.pdfNotes) out.push('<div class="ui-notice">' + n + '</div>');
+  if (cd && cd.pdfInfo) {
+    const p = cd.pdfInfo;
+    out.push('<div class="ui-notice">' + t('pdf.note', esc(p.file), count(p.pages, 'n.pages') + (p.images ? t('and') + count(p.images, 'n.images') : '')) + '</div>');
+    if (p.noText) out.push('<div class="ui-notice">' + t('pdf.noText') + '</div>');
+    else if (p.scanned) out.push('<div class="ui-notice">' + t('pdf.scanned', p.scanned) + '</div>');
+    if (p.columns) out.push('<div class="ui-notice">' + t('pdf.columns') + '</div>');
+  }
   const uniq = a => Array.from(new Set(a));
   const list = a => uniq(a).slice(0, 6).map(s => '<code>' + esc(s) + '</code>').join(', ') + (uniq(a).length > 6 ? '…' : '');
-  if (w.missing.length) out.push('<div class="ui-notice"><b>Faltan ' + uniq(w.missing).length + ' imágenes:</b> ' + list(w.missing) + '. Arrastra esas imágenes (o la carpeta del documento) a la ventana y se colocarán solas.</div>');
-  if (w.remoteBroken.length) out.push('<div class="ui-notice"><b>Imágenes de internet que no se pudieron cargar:</b> ' + list(w.remoteBroken) + '. Descárgalas y arrástralas aquí para incluirlas.</div>');
-  if (w.remote.length) out.push('<div class="ui-notice"><b>Imágenes de internet sin permiso para copiarse:</b> ' + list(w.remote) + '. Se ven en la vista previa, pero pueden faltar al exportar; descárgalas y arrástralas aquí para asegurarlas.</div>');
+  if (w.missing.length) out.push('<div class="ui-notice">' + t('warn.missing', uniq(w.missing).length, list(w.missing)) + '</div>');
+  if (w.remoteBroken.length) out.push('<div class="ui-notice">' + t('warn.broken', list(w.remoteBroken)) + '</div>');
+  if (w.remote.length) out.push('<div class="ui-notice">' + t('warn.remote', list(w.remote)) + '</div>');
   els.notices.innerHTML = out.join('');
 }
 
@@ -652,7 +669,7 @@ async function render() {
   } catch (e) {
     console.error(e);
     if (seq !== renderSeq) return;
-    toast('No se pudo procesar el documento: ' + (e.message || e), true);
+    toast(t('render.failed', e.message || e), true);
     return;
   }
   if (seq !== renderSeq) return;
@@ -699,7 +716,7 @@ async function ingest(entries) {
   for (const e of imgs) { try { addAsset(e.path, await blobToDataURL(e.file)); imgCount++; } catch (err) { /* skip unreadable */ } }
   // a pristine example is replaced by the user's first file
   const pdfs = entries.filter(e => PDF_RE.test(e.file.name)).sort((a, b) => a.path.localeCompare(b.path, 'es'));
-  const onlySample = state.docs.length === 1 && state.docs[0].sample && state.docs[0].md === SAMPLE_MD;
+  const onlySample = state.docs.length === 1 && state.docs[0].sample && isSample(state.docs[0].md);
   if ((mds.length || pdfs.length) && onlySample) state.docs = [];
   for (const e of mds) {
     const { text, enc } = await readText(e.file);
@@ -710,37 +727,34 @@ async function ingest(entries) {
   }
   let pdfCount = 0; const pdfErrors = [];
   if (pdfs.length) {
-    busy(true, pdfs.length === 1 ? 'Leyendo el PDF…' : 'Leyendo ' + pdfs.length + ' archivos PDF…');
+    busy(true, t('pdf.reading', pdfs.length));
     for (let k = 0; k < pdfs.length; k++) {
       const e = pdfs[k];
       try {
         const base = baseName(e.file.name.replace(PDF_RE, ''));
-        const r = await pdfToMarkdown(e.file, base, (n, total) => progress(e.file.name + ' · página ' + n + ' de ' + total, (k + n / total) / pdfs.length));
+        const r = await pdfToMarkdown(e.file, base, (n, total) => progress(t('pdf.page', e.file.name, n, total), (k + n / total) / pdfs.length));
         const path = e.path.replace(PDF_RE, '.md');
         const dir = path.includes('/') ? path.slice(0, path.lastIndexOf('/') + 1) : '';
         for (const im of r.images) addAsset(dir + im.path, im.url);
-        const notes = ['<b>Convertido desde ' + esc(e.file.name) + ':</b> ' + r.pages + (r.pages === 1 ? ' página' : ' páginas') + (r.images.length ? ' y ' + r.images.length + (r.images.length === 1 ? ' imagen' : ' imágenes') : '') + '. Revisa títulos, listas y tablas antes de descargar; puedes corregirlos aquí mismo.'];
-        if (r.chars < 20 * r.pages) notes.push('<b>Este PDF casi no tiene texto.</b> Parece escaneado: sus páginas son fotos y habría que pasarlo antes por un reconocimiento de texto (OCR).');
-        else if (r.scanned) notes.push('<b>' + r.scanned + (r.scanned === 1 ? ' página es una imagen escaneada' : ' páginas son imágenes escaneadas') + '</b> y se incluyeron como imagen, sin texto.');
-        if (r.columns) notes.push('<b>Se detectaron páginas a dos columnas</b> y se leyó primero la izquierda. Comprueba el orden del texto.');
+        const info = { file: e.file.name, pages: r.pages, images: r.images.length, noText: r.chars < 20 * r.pages, scanned: r.scanned, columns: r.columns };
         const existing = state.docs.findIndex(d => d.path === path);
         let d;
         if (existing >= 0) { d = state.docs[existing]; d.md = r.md; if (firstNew < 0) firstNew = existing; }
-        else { d = addDoc(base + '.md', r.md, path, 'Desde PDF'); if (firstNew < 0) firstNew = state.docs.length - 1; }
-        d.enc = 'Desde PDF'; d.pdfNotes = notes;
+        else { d = addDoc(base + '.md', r.md, path, 'pdf'); if (firstNew < 0) firstNew = state.docs.length - 1; }
+        d.enc = 'pdf'; d.pdfInfo = info;
         pdfCount++;
       } catch (err) { console.error(err); pdfErrors.push(e.file.name + ': ' + ((err && err.message) || err)); }
     }
     busy(false);
     if (pdfCount && opts.format === 'pdf') { opts.format = 'md'; saveOpts(); syncOptionsUI(); }
   }
-  if (pdfErrors.length && !pdfCount && !mdCount) { toast('No se pudo convertir ' + pdfErrors.join('; ') + '.', true); return; }
-  if (!mdCount && !imgCount && !pdfCount) { toast('No encontré archivos .md, PDF ni imágenes en lo que soltaste.', true); return; }
+  if (pdfErrors.length && !pdfCount && !mdCount) { toast(t('in.failed', pdfErrors.join('; ')), true); return; }
+  if (!mdCount && !imgCount && !pdfCount) { toast(t('in.none'), true); return; }
   const parts = [];
-  if (pdfCount) parts.push(pdfCount + (pdfCount === 1 ? ' PDF convertido a Markdown' : ' PDF convertidos a Markdown'));
-  if (mdCount) parts.push(mdCount + (mdCount === 1 ? ' documento' : ' documentos'));
-  if (imgCount) parts.push(imgCount + (imgCount === 1 ? ' imagen' : ' imágenes'));
-  toast(pdfErrors.length ? 'Cargado: ' + parts.join(' y ') + '. No se pudo convertir ' + pdfErrors.join('; ') + '.' : 'Cargado: ' + parts.join(' y ') + '.', pdfErrors.length > 0);
+  if (pdfCount) parts.push(count(pdfCount, 'n.pdfs'));
+  if (mdCount) parts.push(count(mdCount, 'n.docs'));
+  if (imgCount) parts.push(count(imgCount, 'n.images'));
+  toast(t('in.loaded', parts.join(t('and'))) + (pdfErrors.length ? ' ' + t('in.failed', pdfErrors.join('; ')) : ''), pdfErrors.length > 0);
   if (firstNew >= 0) await selectDoc(firstNew); else await render();
 }
 function filesFromInput(list) { return Array.from(list).map(f => ({ file: f, path: f.webkitRelativePath || f.name })); }
@@ -749,11 +763,11 @@ $('#btn-folder').addEventListener('click', () => $('#folder-input').click());
 $('#file-input').addEventListener('change', e => { ingest(filesFromInput(e.target.files)); e.target.value = ''; });
 $('#folder-input').addEventListener('change', e => { ingest(filesFromInput(e.target.files)); e.target.value = ''; });
 $('#btn-new').addEventListener('click', () => {
-  const n = state.docs.filter(d => /^sin-titulo/.test(d.name)).length + 1;
-  addDoc('sin-titulo-' + n + '.md', '# Título\n\nEscribe aquí tu documento.\n');
+  const n = state.docs.filter(d => /^(sin-titulo|untitled)/.test(d.name)).length + 1;
+  addDoc(t('new.name') + '-' + n + '.md', t('new.body'));
   selectDoc(state.docs.length - 1).then(() => els.editor.focus());
 });
-$('#btn-sample').addEventListener('click', () => { const d = addDoc('ejemplo.md', SAMPLE_MD); d.sample = true; selectDoc(state.docs.length - 1); });
+$('#btn-sample').addEventListener('click', () => { const d = addDoc(t('sample.name'), SAMPLES[lang()]); d.sample = true; selectDoc(state.docs.length - 1); });
 
 async function walkEntry(entry, out, prefix) {
   if (out.length > 800) return;
@@ -794,7 +808,7 @@ document.addEventListener('paste', e => {
   const files = Array.from((e.clipboardData && e.clipboardData.files) || []);
   if (files.length) { e.preventDefault(); ingest(filesFromInput(files)); return; }
   const text = e.clipboardData && e.clipboardData.getData('text/plain');
-  if (text && text.trim()) { e.preventDefault(); addDoc('pegado-' + (state.docs.length + 1) + '.md', text); selectDoc(state.docs.length - 1); }
+  if (text && text.trim()) { e.preventDefault(); addDoc(t('paste.name') + '-' + (state.docs.length + 1) + '.md', text); selectDoc(state.docs.length - 1); }
 });
 
 /* =====================================================================
@@ -937,12 +951,12 @@ function pageOf(pages, yv) { for (let i = 0; i < pages.length; i++) if (yv < pag
    PDF
    ===================================================================== */
 async function buildPDF(root, title) {
-  progress('Preparando el motor de PDF…', 0.05);
+  progress(t('p.pdfEngine'), 0.05);
   await loadLib('jspdf');
   const g = geom();
   const { pages } = paginate(root, g.contentH);
   const scale = opts.pdfres;
-  progress('Dibujando el documento…', 0.12);
+  progress(t('p.drawing'), 0.12);
   const r = await rasterize(root, scale);
   const lines = opts.pdftext ? collectTextLines(root) : [];
   const links = collectLinks(root);
@@ -956,7 +970,7 @@ async function buildPDF(root, title) {
     for (let i = 0; i < pages.length; i++) {
       const [top, bottom] = pages[i];
       const hh = headH(pages[i]);
-      progress('Página ' + (i + 1) + ' de ' + pages.length, 0.15 + 0.8 * (i / pages.length));
+      progress(t('p.page', i + 1, pages.length), 0.15 + 0.8 * (i / pages.length));
       if (i) pdf.addPage([pw, ph], orientation);
       const c = sliceCanvas(r, top, bottom, 0, 0, r.w, bottom - top + hh, pages[i][2]);
       const data = c.toDataURL('image/jpeg', 0.92);
@@ -1007,7 +1021,7 @@ async function buildPDF(root, title) {
       stack.push({ lvl, node });
     }
   } finally { r.done(); }
-  progress('Guardando…', 0.98);
+  progress(t('p.saving'), 0.98);
   return pdf.output('blob');
 }
 
@@ -1023,11 +1037,11 @@ async function buildImages(root, base) {
   const out = [];
   if (opts.imgmode === 'pages') {
     const { pages } = paginate(root, g.contentH);
-    progress('Dibujando el documento…', 0.1);
+    progress(t('p.drawing'), 0.1);
     const r = await rasterize(root, scale);
     try {
       for (let i = 0; i < pages.length; i++) {
-        progress('Página ' + (i + 1) + ' de ' + pages.length, 0.15 + 0.8 * (i / pages.length));
+        progress(t('p.page', i + 1, pages.length), 0.15 + 0.8 * (i / pages.length));
         const [top, bottom] = pages[i];
         const c = sliceCanvas(r, top, bottom, pad, pad, g.pageW, g.pageH, pages[i][2]);
         const name = pages.length > 1 ? base + '-' + String(i + 1).padStart(2, '0') + '.' + ext : base + '.' + ext;
@@ -1042,11 +1056,11 @@ async function buildImages(root, base) {
   const MAXD = 32000, MAXA = 2.4e8;
   const fit = Math.min(scale, MAXD / H, Math.sqrt(MAXA / (W * H)));
   if (fit >= 1) {
-    if (fit < scale - 0.01) { scale = Math.floor(fit * 100) / 100; toast('El documento es muy largo: la imagen se generó a ' + fmtNum(scale, 2) + '×.'); }
-    progress('Dibujando el documento…', 0.2);
+    if (fit < scale - 0.01) { scale = Math.floor(fit * 100) / 100; toast(t('img.scaled', fmtNum(scale, 2))); }
+    progress(t('p.drawing'), 0.2);
     const r = await rasterize(root, scale);
     try {
-      progress('Componiendo la imagen…', 0.7);
+      progress(t('p.composing'), 0.7);
       const c = sliceCanvas(r, 0, total, pad, pad, W, H);
       out.push({ name: base + '.' + ext, blob: await canvasToBlob(c, type, 0.93) });
       c.width = c.height = 0;
@@ -1059,14 +1073,14 @@ async function buildImages(root, base) {
   const r = await rasterize(root, scale);
   try {
     for (let i = 0; i < pages.length; i++) {
-      progress('Parte ' + (i + 1) + ' de ' + pages.length, 0.15 + 0.8 * (i / pages.length));
+      progress(t('p.part', i + 1, pages.length), 0.15 + 0.8 * (i / pages.length));
       const [top, bottom] = pages[i];
       const c = sliceCanvas(r, top, bottom, pad, pad, W, bottom - top + headH(pages[i]) + 2 * pad, pages[i][2]);
-      out.push({ name: base + '-parte-' + String(i + 1).padStart(2, '0') + '.' + ext, blob: await canvasToBlob(c, type, 0.93) });
+      out.push({ name: base + '-' + t('zip.parts') + '-' + String(i + 1).padStart(2, '0') + '.' + ext, blob: await canvasToBlob(c, type, 0.93) });
       c.width = c.height = 0;
     }
   } finally { r.done(); }
-  toast('El documento es demasiado largo para una sola imagen; se dividió en ' + pages.length + ' partes.');
+  toast(t('img.split', pages.length));
   return out;
 }
 
@@ -1587,7 +1601,7 @@ class DocxBuilder {
       }
     } catch (e) { console.warn('Imagen omitida en Word:', e); data = null; }
     if (!data) return null;
-    const alt = (el.getAttribute && (el.getAttribute('alt') || el.getAttribute('aria-label'))) || 'Imagen';
+    const alt = (el.getAttribute && (el.getAttribute('alt') || el.getAttribute('aria-label'))) || t('img.alt');
     return new D.ImageRun({ type, data, transformation: size, altText: { title: alt, description: alt, name: alt.slice(0, 60) } });
   }
   async rasterImage(img, nw, nh, size) {
@@ -1629,7 +1643,7 @@ class DocxBuilder {
   async build() {
     const D = this.D;
     const g = geom();
-    progress('Convirtiendo bloques…', 0.2);
+    progress(t('p.blocks'), 0.2);
     const body = await this.blocks(Array.from(this.root.childNodes), {});
     if (!body.length) body.push(new D.Paragraph({ children: [] }));
     if (body[body.length - 1] instanceof D.Table) body.push(new D.Paragraph({ children: [], run: { size: 2 } }));
@@ -1660,12 +1674,12 @@ class DocxBuilder {
         children: body
       }]
     });
-    progress('Empaquetando el .docx…', 0.9);
+    progress(t('p.packing'), 0.9);
     return D.Packer.toBlob(doc);
   }
 }
 async function buildDocx(root, title) {
-  progress('Preparando Word…', 0.05);
+  progress(t('p.word'), 0.05);
   await loadLib('docx');
   if ($('.math-inline, .math-display', root)) { try { await loadLib('docxmath'); } catch (e) { /* images instead */ } }
   const b = new DocxBuilder(root, title);
@@ -1733,32 +1747,32 @@ async function zipFiles(files, name) {
 }
 async function exportCurrent() {
   const d = current();
-  if (!d) { toast('Primero abre o escribe un documento.', true); return; }
-  busy(true, 'Generando ' + ({ pdf: 'PDF', docx: 'Word', image: 'imagen', md: 'Markdown' }[opts.format]) + '…');
+  if (!d) { toast(t('ex.none'), true); return; }
+  busy(true, t('ex.making', { pdf: 'PDF', docx: 'Word', image: t('ex.image'), md: 'Markdown' }[opts.format]));
   try {
     await render();
     let files = await convertCurrent();
     let out = files[0];
-    if (files.length > 1) { progress('Comprimiendo ' + files.length + ' archivos…', 0.97); out = await zipFiles(files, safeFile(baseName(d.name)) + '-' + (opts.format === 'md' ? 'markdown' : opts.imgmode === 'pages' ? 'paginas' : 'partes') + '.zip'); }
+    if (files.length > 1) { progress(t('p.zipping', files.length), 0.97); out = await zipFiles(files, safeFile(baseName(d.name)) + '-' + (opts.format === 'md' ? 'markdown' : opts.imgmode === 'pages' ? t('zip.pages') : t('zip.parts')) + '.zip'); }
     busy(false);
     await saveFile(out.name, out.blob);
   } catch (e) {
     console.error(e);
     busy(false);
-    toast('No se pudo generar el archivo: ' + ((e && e.message) || e), true);
+    toast(t('ex.failed', (e && e.message) || e), true);
   }
 }
 async function exportAll() {
   if (state.docs.length < 2) return;
   const keep = state.current;
-  busy(true, 'Convirtiendo ' + state.docs.length + ' documentos…');
+  busy(true, t('ex.all', state.docs.length));
   try {
     const all = [];
     const used = new Set();
     for (let i = 0; i < state.docs.length; i++) {
       state.current = i;
       els.editor.value = state.docs[i].md; renderTabs();
-      progress(state.docs[i].name + ' (' + (i + 1) + ' de ' + state.docs.length + ')', i / state.docs.length);
+      progress(t('p.docOf', state.docs[i].name, i + 1, state.docs.length), i / state.docs.length);
       await render();
       const files = await convertCurrent();
       for (const f of files) {
@@ -1767,13 +1781,13 @@ async function exportAll() {
         used.add(n.toLowerCase()); all.push({ name: n, blob: f.blob });
       }
     }
-    progress('Comprimiendo…', 0.98);
-    const z = await zipFiles(all, 'documentos-' + (opts.format === 'image' ? opts.imgtype : opts.format) + '.zip');
+    progress(t('p.zip'), 0.98);
+    const z = await zipFiles(all, t('zip.docs') + '-' + (opts.format === 'image' ? opts.imgtype : opts.format) + '.zip');
     busy(false);
     await saveFile(z.name, z.blob);
   } catch (e) {
     console.error(e); busy(false);
-    toast('No se pudo completar la conversión: ' + ((e && e.message) || e), true);
+    toast(t('ex.allFailed', (e && e.message) || e), true);
   } finally {
     state.current = keep; selectDoc(keep);
   }
@@ -1788,16 +1802,16 @@ window.addEventListener('resize', () => scheduleLayout());
 bindOptions();
 if (!window.marked || !window.DOMPurify) {
   els.frame.hidden = true; els.empty.hidden = false;
-  els.empty.innerHTML = '<h2>No se pudieron cargar los componentes</h2><p>La página necesita conexión a internet la primera vez. Revisa la conexión y recarga, o usa la versión de la app que funciona sin conexión.</p>';
+  els.empty.innerHTML = t('boot.failed');
   return;
 }
 const saved = store.get('docs', null);
 if (Array.isArray(saved) && saved.length) {
-  for (const d of saved) if (d && typeof d.md === 'string') { const n = addDoc(d.name || 'documento.md', d.md, d.path, d.enc); if (d.md === SAMPLE_MD) n.sample = true; }
+  for (const d of saved) if (d && typeof d.md === 'string') { const n = addDoc(d.name || 'documento.md', d.md, d.path, d.enc); if (isSample(d.md)) n.sample = true; if (d.pdfInfo) n.pdfInfo = d.pdfInfo; }
   const c = store.get('current', 0);
   selectDoc(Math.min(Math.max(0, c | 0), state.docs.length - 1));
 } else {
-  const d = addDoc('ejemplo.md', SAMPLE_MD); d.sample = true;
+  const d = addDoc(t('sample.name'), SAMPLES[lang()]); d.sample = true;
   selectDoc(0);
 }
 // test hooks (used by automated checks; harmless for people)

@@ -14,6 +14,7 @@ Convierte **Markdown a Word, PDF o imagen**, y **PDF a Markdown o Word**, conser
 - **PDF → Markdown o Word:** reconstruye títulos, listas, tablas, código, enlaces e imágenes a partir del PDF.
 - Admite tablas, listas de tareas, notas al pie, alertas de GitHub, fórmulas (KaTeX) y diagramas Mermaid.
 - Tamaños carta, A4, oficio y legal; tres estilos de documento; conversión de varios archivos a la vez.
+- Interfaz en **español o inglés**: se cambia con el selector ES / EN de la barra superior y la elección se recuerda.
 
 ## Cómo se usa
 
@@ -44,7 +45,8 @@ npm run build   # genera index.html
 | `src/styles.css` | Estilos de la interfaz y del documento |
 | `src/app.js` | Vista previa y exportación a Word, PDF, imagen y Markdown |
 | `src/pdf2md.js` | Conversión de PDF a Markdown |
-| `src/sample.md` | Documento de ejemplo |
+| `src/i18n.js` | Textos de la interfaz en español e inglés |
+| `src/sample.md`, `src/sample.en.md` | Documento de ejemplo en cada idioma |
 | `build.mjs` | Une todo en un solo `index.html` |
 
 ## Créditos

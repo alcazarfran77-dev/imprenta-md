@@ -1,6 +1,6 @@
 {
   "name": "imprenta-md",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "description": "Convierte Markdown a Word, PDF o imagen, y PDF a Markdown o Word, en el navegador.",
   "type": "module",
