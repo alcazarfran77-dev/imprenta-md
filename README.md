@@ -1,5 +1,7 @@
 # Imprenta MD
 
+**Español** · [English](README.en.md)
+
 Convierte **Markdown a Word, PDF o imagen**, y **PDF a Markdown o Word**, conservando el formato. Funciona por completo en el navegador: los archivos no se suben a ningún servidor.
 
 **Abrir la app:** https://alcazarfran77-dev.github.io/imprenta-md/
