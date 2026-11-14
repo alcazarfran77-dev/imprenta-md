@@ -13,7 +13,7 @@ Convierte **Markdown a Word, PDF o imagen**, y **PDF a Markdown o Word**, conser
 - **Markdown → Word (.docx):** documento editable con estilos de título, listas, tablas, código coloreado y ecuaciones de Word.
 - **Markdown → PDF:** igual a la vista previa, con texto seleccionable, enlaces y marcadores.
 - **Markdown → imagen (PNG o JPG):** una imagen larga o una por página.
-- **PDF → Markdown o Word:** reconstruye títulos, listas, tablas, código, enlaces e imágenes a partir del PDF.
+- **PDF → Markdown o Word:** reconstruye títulos, listas, código y enlaces; detecta las tablas (con bordes, con franjas o solo alineadas) y las convierte en tablas; extrae las imágenes y guarda como imagen las gráficas y diagramas.
 - Admite tablas, listas de tareas, notas al pie, alertas de GitHub, fórmulas (KaTeX) y diagramas Mermaid.
 - Tamaños carta, A4, oficio y legal; tres estilos de documento; conversión de varios archivos a la vez.
 - Interfaz en **español o inglés**: se cambia con el selector ES / EN de la barra superior y la elección se recuerda.

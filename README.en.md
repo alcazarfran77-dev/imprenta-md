@@ -13,7 +13,7 @@ Converts **Markdown to Word, PDF or image**, and **PDF to Markdown or Word**, pr
 - **Markdown → Word (.docx):** an editable document with heading styles, lists, tables, colored code and Word equations.
 - **Markdown → PDF:** identical to the preview, with selectable text, links and bookmarks.
 - **Markdown → image (PNG or JPG):** one long image or one per page.
-- **PDF → Markdown or Word:** rebuilds headings, lists, tables, code, links and images from the PDF.
+- **PDF → Markdown or Word:** rebuilds headings, lists, code and links; detects tables (ruled, striped or simply aligned) and converts them to tables; extracts pictures and saves charts and diagrams as images.
 - Supports tables, task lists, footnotes, GitHub alerts, formulas (KaTeX) and Mermaid diagrams.
 - Letter, A4, Oficio and Legal page sizes; three document styles; converts several files at once.
 - Interface in **Spanish or English**: switch with the ES / EN selector in the top bar; your choice is remembered.

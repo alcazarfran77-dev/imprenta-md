@@ -9113,7 +9113,7 @@ const STR = {
     'dl.pdf': 'Descargar PDF', 'dl.docx': 'Descargar Word', 'dl.image': 'Descargar imagen', 'dl.md': 'Descargar Markdown',
     'zip.pages': 'paginas', 'zip.parts': 'partes', 'zip.docs': 'documentos',
     'break.tag': 'Pág. {0}', 'meta.margins': 'márgenes {0} cm',
-    'n.pages': ['página', 'páginas'], 'n.words': ['palabra', 'palabras'], 'n.images': ['imagen', 'imágenes'],
+    'n.pages': ['página', 'páginas'], 'n.words': ['palabra', 'palabras'], 'n.images': ['imagen', 'imágenes'], 'n.tables': ['tabla', 'tablas'],
     'n.docs': ['documento', 'documentos'], 'n.pdfs': ['PDF convertido a Markdown', 'PDF convertidos a Markdown'],
     'warn.missing': '<b>Faltan {0} imágenes:</b> {1}. Arrastra esas imágenes (o la carpeta del documento) a la ventana y se colocarán solas.',
     'warn.broken': '<b>Imágenes de internet que no se pudieron cargar:</b> {0}. Descárgalas y arrástralas aquí para incluirlas.',
@@ -9156,7 +9156,7 @@ const STR = {
     'dl.pdf': 'Download PDF', 'dl.docx': 'Download Word', 'dl.image': 'Download image', 'dl.md': 'Download Markdown',
     'zip.pages': 'pages', 'zip.parts': 'parts', 'zip.docs': 'documents',
     'break.tag': 'Page {0}', 'meta.margins': 'margins {0} cm',
-    'n.pages': ['page', 'pages'], 'n.words': ['word', 'words'], 'n.images': ['image', 'images'],
+    'n.pages': ['page', 'pages'], 'n.words': ['word', 'words'], 'n.images': ['image', 'images'], 'n.tables': ['table', 'tables'],
     'n.docs': ['document', 'documents'], 'n.pdfs': ['PDF converted to Markdown', 'PDFs converted to Markdown'],
     'warn.missing': '<b>{0} images are missing:</b> {1}. Drag those images (or the document\'s folder) into the window and they will be placed automatically.',
     'warn.broken': '<b>Web images that could not be loaded:</b> {0}. Download them and drag them here to include them.',
@@ -9881,7 +9881,10 @@ function renderNotices(w) {
   const cd = current();
   if (cd && cd.pdfInfo) {
     const p = cd.pdfInfo;
-    out.push('<div class="ui-notice">' + t('pdf.note', esc(p.file), count(p.pages, 'n.pages') + (p.images ? t('and') + count(p.images, 'n.images') : '')) + '</div>');
+    const found = [count(p.pages, 'n.pages')];
+    if (p.tables) found.push(count(p.tables, 'n.tables'));
+    if (p.images) found.push(count(p.images, 'n.images'));
+    out.push('<div class="ui-notice">' + t('pdf.note', esc(p.file), found.length > 1 ? found.slice(0, -1).join(', ') + t('and') + found[found.length - 1] : found[0]) + '</div>');
     if (p.noText) out.push('<div class="ui-notice">' + t('pdf.noText') + '</div>');
     else if (p.scanned) out.push('<div class="ui-notice">' + t('pdf.scanned', p.scanned) + '</div>');
     if (p.columns) out.push('<div class="ui-notice">' + t('pdf.columns') + '</div>');
@@ -10093,7 +10096,8 @@ async function pdfReadPage(page, pdfjsLib, pageNo, shared) {
     const info = {
       b: !!(f && (f.bold || f.black)) || /bold|black|heavy|semibold|demibold/i.test(nm),
       i: !!(f && f.italic) || /italic|oblique/i.test(nm),
-      m: !!(f && f.isMonospace) || /mono|courier|consol|menlo/i.test(nm) || st.fontFamily === 'monospace'
+      m: !!(f && f.isMonospace) || /mono|courier|consol|menlo/i.test(nm) || st.fontFamily === 'monospace',
+      nf: !!(f && f.missingFile)
     };
     fonts.set(name, info); return info;
   };
@@ -10107,7 +10111,7 @@ async function pdfReadPage(page, pdfjsLib, pageNo, shared) {
     const x = t[4], y = t[5], x1 = x + it.width;
     if (x1 < 0 || x > W || y < 0 || y > H + fs) continue;
     const cy = y - fs * 0.3;
-    const mk = (str, a, z, link) => { if (str) items.push({ str, x: a, x1: z, y, fs, b: fi.b, i: fi.i, m: fi.m, link }); };
+    const mk = (str, a, z, link) => { if (str) items.push({ str, x: a, x1: z, y, fs, b: fi.b, i: fi.i, m: fi.m, nf: fi.nf, link }); };
     const over = links.filter(l => cy >= l.y0 - 1 && cy <= l.y1 + 1 && l.x1 > x + 1 && l.x0 < x1 - 1).sort((p, q) => p.x0 - q.x0);
     if (!over.length) { mk(it.str, x, x1, null); continue; }
     const n = it.str.length, cw = (x1 - x) / n;
@@ -10124,6 +10128,83 @@ async function pdfReadPage(page, pdfjsLib, pageNo, shared) {
     mk(it.str.slice(pos), x + pos * cw, x1, null);
   }
   for (let k = items.length - 1; k >= 0; k--) if (!items[k].str.trim()) items.splice(k, 1);
+
+  const firstImage = shared.images;
+  /* graphics: ruling lines, shaded boxes, drawings and pictures */
+  const gfx = ops ? pdfReadGraphics(ops, pdfjsLib.OPS, vp, W, H) : { paths: [], imgs: [], dots: [] };
+  const dots = gfx.dots;
+  const getObj = name => new Promise(res => {
+    const objs = String(name).startsWith('g_') ? page.commonObjs : page.objs;
+    let done = false;
+    const t = setTimeout(() => { if (!done) { done = true; res(null); } }, 4000);
+    try { objs.get(name, o => { if (!done) { done = true; clearTimeout(t); res(o); } }); } catch (e) { clearTimeout(t); res(null); }
+  });
+  // a picture of the whole page lying under its own text (scan with OCR, or a PDF made by this app)
+  let raster = null;
+  for (const im of gfx.imgs) {
+    const b = im.b, area = ((b.x1 - b.x0) * (b.y1 - b.y0)) / (W * H);
+    const inside = items.filter(it => it.x >= b.x0 - 2 && it.x1 <= b.x1 + 2 && it.y >= b.y0 && it.y <= b.y1 + 2).length;
+    if (area > 0.4 && items.length >= 3 && inside >= 0.5 * items.length) {
+      im.used = true; shared.raster++;
+      if (!raster) { const o = im.inline || await getObj(im.name); if (o) raster = { obj: o, b }; }
+    }
+  }
+  // tables drawn with lines or shaded cells
+  const tables = raster ? [] : pdfGridTables(gfx.paths, items, pageNo);
+  for (const tb of tables) for (let k = items.length - 1; k >= 0; k--) { const it = items[k]; if (pdfInBox(tb, (it.x + it.x1) / 2, it.y - it.fs * 0.3, 1)) items.splice(k, 1); }
+  // drawings (charts, diagrams) and pictures cut into pieces: photograph that part of the page
+  const images = [];
+  const figs = raster ? [] : pdfFindFigures(gfx, tables, items, W, H);
+  if (figs.length) {
+    let shot = null;
+    try {
+      const sc = Math.min(2, 2400 / W);
+      const c = document.createElement('canvas'); c.width = Math.ceil(W * sc); c.height = Math.ceil(H * sc);
+      const ctx = c.getContext('2d'); ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, c.width, c.height);
+      await page.render({ canvasContext: ctx, viewport: page.getViewport({ scale: sc }) }).promise;
+      shot = { c, sc };
+    } catch (e) { shot = null; }
+    for (const f of figs) {
+      if (!shot || shared.images >= 60) break;
+      const sc = shot.sc, x = Math.floor(f.x0 * sc), y = Math.floor(f.y0 * sc), w = Math.ceil((f.x1 - f.x0) * sc), h = Math.ceil((f.y1 - f.y0) * sc);
+      const cut = document.createElement('canvas'); cut.width = w; cut.height = h;
+      const cctx = cut.getContext('2d');
+      cctx.drawImage(shot.c, x, y, w, h, 0, 0, w, h);
+      // labels set in a font the PDF does not carry are not drawn by the renderer: write them in
+      cctx.fillStyle = '#222222'; cctx.textBaseline = 'alphabetic';
+      for (const it of f.items) {
+        if (!it.nf || !it.str.trim()) continue;
+        cctx.font = (it.i ? 'italic ' : '') + (it.b ? 'bold ' : '') + (it.fs * sc) + 'px ' + (it.m ? 'monospace' : 'Helvetica, Arial, sans-serif');
+        const nat = cctx.measureText(it.str).width || 1, want = (it.x1 - it.x) * sc;
+        cctx.save(); cctx.translate(it.x * sc - x, it.y * sc - y); cctx.scale(Math.min(1.5, Math.max(0.6, want / nat)), 1); cctx.fillText(it.str, 0, 0); cctx.restore();
+      }
+      const enc = { url: cut.toDataURL('image/png'), ext: 'png' };
+      const key = 'fig' + w + 'x' + h + ':' + enc.url.length + ':' + enc.url.slice(-48);
+      for (const im of f.imgs) im.used = true;
+      for (let k = items.length - 1; k >= 0; k--) if (f.items.has(items[k])) items.splice(k, 1);
+      if (shared.seen.has(key)) continue;
+      shared.seen.add(key); shared.images++;
+      images.push({ type: 'img', page: pageNo, y: f.y0, w: f.x1 - f.x0, wide: f.x1 - f.x0 >= 0.6 * W, url: enc.url, ext: enc.ext, n: shared.images });
+    }
+  }
+  // single pictures: take the original image out of the PDF
+  for (const im of gfx.imgs) {
+    if (im.used) continue;
+    const b = im.b, w = b.x1 - b.x0, h = b.y1 - b.y0;
+    if (w < 20 || h < 20 || shared.images >= 60 || tables.some(tb => pdfInBox(tb, (b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, 0))) continue;
+    const obj = im.inline || await getObj(im.name);
+    if (!obj) continue;
+    let enc = null;
+    try { enc = pdfImageToDataURL(obj); } catch (e) { enc = null; }
+    if (!enc) continue;
+    const key = obj.width + 'x' + obj.height + ':' + enc.url.length + ':' + enc.url.slice(-48);
+    if (shared.seen.has(key)) continue; // repeated logo or background
+    shared.seen.add(key);
+    if (!items.length && (w * h) / (W * H) > 0.5) shared.scanned++;
+    shared.images++;
+    images.push({ type: 'img', page: pageNo, y: b.y0, w, wide: w >= 0.6 * W, url: enc.url, ext: enc.ext, n: shared.images });
+  }
+
   items.sort((a, b) => a.y - b.y || a.x - b.x);
   const groups = [];
   for (const it of items) {
@@ -10152,60 +10233,6 @@ async function pdfReadPage(page, pdfjsLib, pageNo, shared) {
   }
   let lines = groups.filter(Boolean).map(g => pdfBuildLine(g.items, pageNo)).sort((a, b) => a.y - b.y);
 
-  /* pictures */
-  const images = [], dots = [];
-  let raster = null;
-  if (ops) {
-    const OPS = pdfjsLib.OPS;
-    let ctm = vp.transform.slice(); const stack = [];
-    const getObj = name => new Promise(res => {
-      const objs = String(name).startsWith('g_') ? page.commonObjs : page.objs;
-      let done = false;
-      const t = setTimeout(() => { if (!done) { done = true; res(null); } }, 4000);
-      try { objs.get(name, o => { if (!done) { done = true; clearTimeout(t); res(o); } }); } catch (e) { clearTimeout(t); res(null); }
-    });
-    for (let i = 0; i < ops.fnArray.length; i++) {
-      const fn = ops.fnArray[i], args = ops.argsArray[i];
-      if (fn === OPS.save) stack.push(ctm);
-      else if (fn === OPS.restore) { if (stack.length) ctm = stack.pop(); }
-      else if (fn === OPS.transform) ctm = matMul(ctm, args);
-      else if (fn === OPS.paintFormXObjectBegin) { stack.push(ctm); if (args && args[0]) ctm = matMul(ctm, args[0]); }
-      else if (fn === OPS.paintFormXObjectEnd) { if (stack.length) ctm = stack.pop(); }
-      else if (fn === OPS.constructPath) {
-        const mm = args && args[2];
-        if (!mm || !isFinite(mm[0]) || !isFinite(mm[3])) continue;
-        const px = [mm[0], mm[1]], py = [mm[2], mm[3]], xs = [], ys = [];
-        for (const a of px) for (const b of py) { xs.push(ctm[0] * a + ctm[2] * b + ctm[4]); ys.push(ctm[1] * a + ctm[3] * b + ctm[5]); }
-        const w = Math.max(...xs) - Math.min(...xs), h = Math.max(...ys) - Math.min(...ys);
-        if (w <= 9 && h <= 9 && (w < 0.5 && h < 0.5 || (w >= 1.5 && h >= 1.5 && w / h > 0.6 && w / h < 1.7))) dots.push({ x0: Math.min(...xs), x1: Math.max(...xs), yc: (Math.min(...ys) + Math.max(...ys)) / 2 });
-      }
-      else if (fn === OPS.paintImageXObject || fn === OPS.paintInlineImageXObject) {
-        const xs = [ctm[4], ctm[0] + ctm[4], ctm[2] + ctm[4], ctm[0] + ctm[2] + ctm[4]];
-        const ys = [ctm[5], ctm[1] + ctm[5], ctm[3] + ctm[5], ctm[1] + ctm[3] + ctm[5]];
-        const b = { x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) };
-        const w = b.x1 - b.x0, h = b.y1 - b.y0;
-        if (w < 20 || h < 20 || shared.images >= 60) continue;
-        const area = (w * h) / (W * H);
-        const inside = items.filter(it => it.x >= b.x0 - 2 && it.x1 <= b.x1 + 2 && it.y >= b.y0 && it.y <= b.y1 + 2).length;
-        if (area > 0.4 && items.length >= 3 && inside >= 0.5 * items.length) { // picture of the page under its own text
-          shared.raster++;
-          if (!raster) { const o = fn === OPS.paintInlineImageXObject ? args[0] : await getObj(args[0]); if (o) raster = { obj: o, b }; }
-          continue;
-        }
-        const obj = fn === OPS.paintInlineImageXObject ? args[0] : await getObj(args[0]);
-        if (!obj) continue;
-        let enc = null;
-        try { enc = pdfImageToDataURL(obj); } catch (e) { enc = null; }
-        if (!enc) continue;
-        const key = obj.width + 'x' + obj.height + ':' + enc.url.length + ':' + enc.url.slice(-48);
-        if (shared.seen.has(key)) continue; // repeated logo or background
-        shared.seen.add(key);
-        if (!items.length && area > 0.5) shared.scanned++;
-        shared.images++;
-        images.push({ type: 'img', page: pageNo, y: b.y0, w, wide: w >= 0.6 * W, url: enc.url, ext: enc.ext, n: shared.images });
-      }
-    }
-  }
   if (raster) {
     try {
       for (const f of pdfFiguresFromRaster(raster.obj, raster.b, lines)) {
@@ -10228,7 +10255,274 @@ async function pdfReadPage(page, pdfjsLib, pageNo, shared) {
     });
   }
   images.sort((a, b) => a.y - b.y);
-  return { W, H, lines, images };
+  images.forEach((im, k) => { im.n = firstImage + k + 1; });
+  return { W, H, lines, images, tables };
+}
+
+/* ---------- graphics on a page ---------- */
+function pdfInBox(b, x, y, pad) { return x >= b.x0 - pad && x <= b.x1 + pad && y >= b.y0 - pad && y <= b.y1 + pad; }
+function pdfReadGraphics(ops, OPS, vp, W, H) {
+  const paths = [], imgs = [], dots = [];
+  let ctm = vp.transform.slice(), fillWhite = false, strokeWhite = false;
+  const stack = [];
+  const isWhite = a => (typeof a[0] === 'string' ? /^#f[0-9a-f]f[0-9a-f]f[0-9a-f]$|^#fff$/i.test(a[0]) : a[0] >= 245 && a[1] >= 245 && a[2] >= 245);
+  const FILL = new Set([OPS.fill, OPS.eoFill, OPS.fillStroke, OPS.eoFillStroke, OPS.closeFillStroke, OPS.closeEOFillStroke]);
+  const STROKE = new Set([OPS.stroke, OPS.closeStroke, OPS.fillStroke, OPS.eoFillStroke, OPS.closeFillStroke, OPS.closeEOFillStroke]);
+  const tx = (x, y) => [ctm[0] * x + ctm[2] * y + ctm[4], ctm[1] * x + ctm[3] * y + ctm[5]];
+  for (let i = 0; i < ops.fnArray.length; i++) {
+    const fn = ops.fnArray[i], args = ops.argsArray[i];
+    if (fn === OPS.save) stack.push([ctm, fillWhite, strokeWhite]);
+    else if (fn === OPS.restore) { if (stack.length) [ctm, fillWhite, strokeWhite] = stack.pop(); }
+    else if (fn === OPS.transform) ctm = matMul(ctm, args);
+    else if (fn === OPS.paintFormXObjectBegin) { stack.push([ctm, fillWhite, strokeWhite]); if (args && args[0]) ctm = matMul(ctm, args[0]); }
+    else if (fn === OPS.paintFormXObjectEnd) { if (stack.length) [ctm, fillWhite, strokeWhite] = stack.pop(); }
+    else if (fn === OPS.setFillRGBColor) fillWhite = isWhite(args);
+    else if (fn === OPS.setStrokeRGBColor) strokeWhite = isWhite(args);
+    else if (fn === OPS.paintImageXObject || fn === OPS.paintInlineImageXObject || fn === OPS.paintImageMaskXObject || fn === OPS.paintImageXObjectRepeat) {
+      const xs = [ctm[4], ctm[0] + ctm[4], ctm[2] + ctm[4], ctm[0] + ctm[2] + ctm[4]];
+      const ys = [ctm[5], ctm[1] + ctm[5], ctm[3] + ctm[5], ctm[1] + ctm[3] + ctm[5]];
+      const b = { x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) };
+      const plain = fn === OPS.paintImageXObject || fn === OPS.paintInlineImageXObject;
+      if (b.x1 - b.x0 > 1 && b.y1 - b.y0 > 1) imgs.push({ b, name: fn === OPS.paintImageXObject ? args[0] : null, inline: fn === OPS.paintInlineImageXObject ? args[0] : null, plain });
+    }
+    else if (fn === OPS.constructPath) {
+      // was this outline painted, and how?
+      let filled = false, stroked = false;
+      for (let j = i + 1; j < ops.fnArray.length && j <= i + 3; j++) {
+        const f = ops.fnArray[j];
+        if (FILL.has(f)) filled = true;
+        if (STROKE.has(f)) stroked = true;
+        if (FILL.has(f) || STROKE.has(f) || f === OPS.endPath || f === OPS.constructPath) break;
+      }
+      const sub = args[0], co = args[1];
+      let k = 0, cx = 0, cy = 0, sx = 0, sy = 0, x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, n = 0, curved = false;
+      const segs = [], rects = [];
+      const see = (x, y) => { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; };
+      const line = (ax, ay, bx, by) => {
+        if (Math.abs(ay - by) < 0.7 && Math.abs(ax - bx) >= 4) segs.push({ h: 1, p: (ay + by) / 2, a: Math.min(ax, bx), b: Math.max(ax, bx) });
+        else if (Math.abs(ax - bx) < 0.7 && Math.abs(ay - by) >= 4) segs.push({ h: 0, p: (ax + bx) / 2, a: Math.min(ay, by), b: Math.max(ay, by) });
+      };
+      for (const o of sub) {
+        n++;
+        if (o === OPS.moveTo) { [cx, cy] = tx(co[k], co[k + 1]); k += 2; sx = cx; sy = cy; see(cx, cy); }
+        else if (o === OPS.lineTo) { const [x, y] = tx(co[k], co[k + 1]); k += 2; line(cx, cy, x, y); cx = x; cy = y; see(x, y); }
+        else if (o === OPS.curveTo) { for (let q = 0; q < 3; q++) { const [x, y] = tx(co[k], co[k + 1]); k += 2; see(x, y); cx = x; cy = y; } curved = true; }
+        else if (o === OPS.curveTo2 || o === OPS.curveTo3) { for (let q = 0; q < 2; q++) { const [x, y] = tx(co[k], co[k + 1]); k += 2; see(x, y); cx = x; cy = y; } curved = true; }
+        else if (o === OPS.closePath) { line(cx, cy, sx, sy); cx = sx; cy = sy; }
+        else if (o === OPS.rectangle) {
+          const [ax, ay] = tx(co[k], co[k + 1]), [bx, by] = tx(co[k] + co[k + 2], co[k + 1] + co[k + 3]); k += 4;
+          see(ax, ay); see(bx, by);
+          rects.push({ x0: Math.min(ax, bx), x1: Math.max(ax, bx), y0: Math.min(ay, by), y1: Math.max(ay, by) });
+        }
+      }
+      if (!isFinite(x0)) continue;
+      const w = x1 - x0, h = y1 - y0;
+      if (w <= 9 && h <= 9 && (w < 0.5 && h < 0.5 || (w >= 1.5 && h >= 1.5 && w / h > 0.6 && w / h < 1.7))) dots.push({ x0, x1, yc: (y0 + y1) / 2 });
+      if (!filled && !stroked) continue;
+      const white = (filled ? fillWhite : true) && (stroked ? strokeWhite : true);
+      // a closed outline made of four straight sides is a box too
+      if (!rects.length && !curved && segs.length === 4 && segs.filter(q => q.h).length === 2 && w > 3 && h > 3) { rects.push({ x0, x1, y0, y1 }); segs.length = 0; }
+      const rules = [];
+      if (!white) {
+        if (stroked) rules.push(...segs);
+        for (const r of rects) {
+          const rw = r.x1 - r.x0, rh = r.y1 - r.y0;
+          if (rh <= 3 && rw >= 4) rules.push({ h: 1, p: (r.y0 + r.y1) / 2, a: r.x0, b: r.x1 });
+          else if (rw <= 3 && rh >= 4) rules.push({ h: 0, p: (r.x0 + r.x1) / 2, a: r.y0, b: r.y1 });
+          else if (rw >= 6 && rh >= 6 && !(rw > 0.85 * W && rh > 0.85 * H)) {
+            rules.push({ h: 1, p: r.y0, a: r.x0, b: r.x1, soft: !stroked }, { h: 1, p: r.y1, a: r.x0, b: r.x1, soft: !stroked }, { h: 0, p: r.x0, a: r.y0, b: r.y1, soft: !stroked }, { h: 0, p: r.x1, a: r.y0, b: r.y1, soft: !stroked });
+          }
+        }
+      }
+      paths.push({ x0, x1, y0, y1, n, white, rules, thin: Math.min(w, h) < 2.5 && Math.max(w, h) > 30, box: rects.length === 1 && sub.length <= 2 });
+    }
+  }
+  return { paths, imgs, dots };
+}
+
+/* Tables drawn with ruling lines or shaded cells: the grid gives the cells, the text fills them. */
+function pdfGridTables(paths, items, pageNo) {
+  const segs = [];
+  paths.forEach((p, pi) => { for (const r of p.rules) segs.push(Object.assign({ path: pi }, r)); });
+  if (segs.length < 4 || segs.length > 4000) return [];
+  const parent = segs.map((_, i) => i);
+  const find = i => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+  const T = 2.5;
+  for (let i = 0; i < segs.length; i++) for (let j = i + 1; j < segs.length; j++) {
+    const a = segs[i], b = segs[j];
+    let touch;
+    if (a.h !== b.h) { const hs = a.h ? a : b, vs = a.h ? b : a; touch = hs.p >= vs.a - T && hs.p <= vs.b + T && vs.p >= hs.a - T && vs.p <= hs.b + T; }
+    else touch = Math.abs(a.p - b.p) <= 1.5 && a.a <= b.b + T && b.a <= a.b + T;
+    if (touch) parent[find(i)] = find(j);
+  }
+  const groups = new Map();
+  segs.forEach((sg, i) => { const r = find(i); if (!groups.has(r)) groups.set(r, []); groups.get(r).push(sg); });
+  const uniq = vals => { vals.sort((a, b) => a - b); const out = []; for (const v of vals) if (!out.length || v - out[out.length - 1] > T) out.push(v); return out; };
+  const cands = [];
+  for (const g of groups.values()) {
+    const hs = g.filter(q => q.h), vs = g.filter(q => !q.h);
+    if (hs.length < 2 || vs.length < 2) continue;
+    const box = { x0: Math.min(...vs.map(q => q.p), ...hs.map(q => q.a)), x1: Math.max(...vs.map(q => q.p), ...hs.map(q => q.b)), y0: Math.min(...hs.map(q => q.p), ...vs.map(q => q.a)), y1: Math.max(...hs.map(q => q.p), ...vs.map(q => q.b)) };
+    cands.push({ g, hs, vs, box, area: (box.x1 - box.x0) * (box.y1 - box.y0) });
+  }
+  cands.sort((a, b) => b.area - a.area);
+  const out = [];
+  for (const c of cands) {
+    const box = c.box;
+    if (out.some(tb => pdfInBox(tb, (box.x0 + box.x1) / 2, (box.y0 + box.y1) / 2, 0))) continue;
+    const inside = items.filter(it => pdfInBox(box, (it.x + it.x1) / 2, it.y - it.fs * 0.3, 1));
+    if (inside.length < 3) continue;
+    let ys = uniq(c.hs.map(q => q.p)), xs = uniq(c.vs.map(q => q.p));
+    // only an outer frame or shaded rows: take the columns from the gaps in the text
+    if (xs.length < 3) {
+      const groupsY = pdfGroupByLine(inside);
+      const lines = groupsY.map(gr => pdfBuildLine(gr.slice(), pageNo));
+      const cols = pdfTableCols(lines);
+      if (cols.length < 2) continue;
+      const bands = ys.length - 1, perBand = lines.length / Math.max(1, bands);
+      if (perBand > 2.5) continue;
+      xs = [box.x0]; for (let k = 1; k < cols.length; k++) xs.push((cols[k - 1][1] + cols[k][0]) / 2); xs.push(box.x1);
+    }
+    if (ys.length < 3) continue;
+    const nr = ys.length - 1, nc = xs.length - 1;
+    const cells = Array.from({ length: nr }, () => Array.from({ length: nc }, () => []));
+    // a run of text that crosses a column line belongs to two cells: cut it at the nearest space
+    const pieces = [];
+    for (const it of inside) {
+      let cur = it;
+      for (let k = 1; k < nc; k++) {
+        const bx = xs[k];
+        const cy = cur.y - cur.fs * 0.3;
+        if (!(bx > cur.x + 2 && bx < cur.x1 - 2) || !c.vs.some(q => Math.abs(q.p - bx) <= T && cy >= q.a - 1 && cy <= q.b + 1)) continue;
+        const str = cur.str, cw = (cur.x1 - cur.x) / str.length;
+        let best = -1, bd = Infinity;
+        for (let q = 1; q < str.length - 1; q++) if (/\s/.test(str[q])) { const d = Math.abs(cur.x + (q + 0.5) * cw - bx); if (d < bd) { bd = d; best = q; } }
+        if (best < 0 || bd > Math.max(12, 0.2 * (cur.x1 - cur.x))) continue;
+        pieces.push(Object.assign({}, cur, { str: str.slice(0, best), x1: cur.x + best * cw }));
+        cur = Object.assign({}, cur, { str: str.slice(best + 1), x: cur.x + (best + 1) * cw });
+      }
+      pieces.push(cur);
+    }
+    for (const it of pieces) {
+      if (!it.str.trim()) continue;
+      const cx = (it.x + it.x1) / 2, cy = it.y - it.fs * 0.3;
+      let ci = xs.findIndex((v, k) => k < nc && cx >= v - 1 && cx < xs[k + 1] + (k === nc - 1 ? 1 : 0)); if (ci < 0) ci = cx < xs[0] ? 0 : nc - 1;
+      let ri = ys.findIndex((v, k) => k < nr && cy >= v - 1 && cy < ys[k + 1] + (k === nr - 1 ? 1 : 0)); if (ri < 0) ri = cy < ys[0] ? 0 : nr - 1;
+      cells[ri][ci].push(it);
+    }
+    const runsOf = its => pdfJoinLines(pdfGroupByLine(its).map(gr => pdfBuildLine(gr.slice(), pageNo)));
+    let rows = cells.map(r => r.map(c => (c.length ? runsOf(c) : [])));
+    rows = rows.filter(r => r.some(c => c.length));
+    const keep = []; for (let k = 0; k < nc; k++) if (rows.some(r => r[k].length)) keep.push(k);
+    rows = rows.map(r => keep.map(k => r[k]));
+    if (rows.length < 2 || keep.length < 2) continue;
+    const filled = rows.reduce((a, r) => a + r.filter(c => c.length).length, 0);
+    if (filled < 0.4 * rows.length * keep.length || rows.filter(r => r.filter(c => c.length).length >= 2).length < 2) continue;
+    const cellMd = (runs, head) => pdfRunsToMd(runs, { noBold: head }).replace(/\|/g, '\\|');
+    const body = rows.slice(1).map(r => r.map(c => cellMd(c, false)));
+    const sizes = new Map();
+    for (const it of inside) { const k = Math.round(it.fs * 2) / 2; sizes.set(k, (sizes.get(k) || 0) + it.str.trim().length); }
+    out.push(Object.assign({ type: 'tbl', table: true, sizes, page: pageNo, y: box.y0, head: rows[0].map(c => cellMd(c, true)), align: pdfTableAlign(body, keep.length), body, paths: new Set(c.g.map(q => q.path)) }, box));
+  }
+  return out;
+}
+function pdfGroupByLine(items) {
+  const sorted = items.slice().sort((a, b) => a.y - b.y || a.x - b.x), groups = [];
+  for (const it of sorted) {
+    const g = groups[groups.length - 1];
+    if (g && Math.abs(g[0].y - it.y) <= 0.4 * Math.max(g[0].fs, it.fs)) g.push(it); else groups.push([it]);
+  }
+  return groups;
+}
+function pdfTableAlign(body, nc) {
+  return Array.from({ length: nc }, (_, ci) => {
+    const vals = body.map(r => r[ci]).filter(Boolean);
+    return vals.length && vals.filter(v => /^[^\p{L}]*\d[\d.,\s]*[^\p{L}]*$/u.test(v.replace(/\\/g, ''))).length >= 0.7 * vals.length ? '--:' : '---';
+  });
+}
+
+/* Drawings: groups of shapes (and picture tiles) close together that are not a table. */
+function pdfFindFigures(gfx, tables, items, W, H) {
+  const boxes = [];
+  const inTable = b => tables.some(tb => pdfInBox(tb, (b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, 2));
+  gfx.paths.forEach((p, pi) => {
+    if (p.white || p.thin || tables.some(tb => tb.paths.has(pi)) || inTable(p)) return;
+    const w = p.x1 - p.x0, h = p.y1 - p.y0;
+    if (w * h > 0.5 * W * H && p.n <= 6) return; // page frame or background
+    if (w < 0.5 && h < 0.5) return;
+    boxes.push({ x0: p.x0, x1: p.x1, y0: p.y0, y1: p.y1, n: p.n, path: true, plainBox: p.box });
+  });
+  for (const im of gfx.imgs) if (!im.used && !inTable(im.b)) boxes.push({ x0: im.b.x0, x1: im.b.x1, y0: im.b.y0, y1: im.b.y1, n: 0, img: im });
+  if (!boxes.length) return [];
+  const G = 8, gw = Math.ceil(W / G) + 2, gh = Math.ceil(H / G) + 2;
+  const grid = new Int32Array(gw * gh).fill(-1);
+  const cl = (v, m) => Math.max(0, Math.min(m - 1, v));
+  for (const b of boxes) {
+    const a0 = cl(Math.floor(b.x0 / G), gw), a1 = cl(Math.floor(b.x1 / G), gw), r0 = cl(Math.floor(b.y0 / G), gh), r1 = cl(Math.floor(b.y1 / G), gh);
+    for (let r = r0; r <= r1; r++) for (let c = a0; c <= a1; c++) grid[r * gw + c] = 0;
+    b.cell = r0 * gw + a0;
+  }
+  let comp = 0; const stackQ = [];
+  for (let i = 0; i < grid.length; i++) {
+    if (grid[i] !== 0) continue;
+    comp++; grid[i] = comp; stackQ.push(i);
+    while (stackQ.length) {
+      const q = stackQ.pop(), r = (q / gw) | 0, c = q % gw;
+      for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
+        const rr = r + dr, cc = c + dc; if (rr < 0 || cc < 0 || rr >= gh || cc >= gw) continue;
+        const k = rr * gw + cc; if (grid[k] === 0) { grid[k] = comp; stackQ.push(k); }
+      }
+    }
+  }
+  let comps = new Map();
+  for (const b of boxes) { const k = grid[b.cell]; if (!comps.has(k)) comps.set(k, { bs: [], x0: Infinity, x1: -Infinity, y0: Infinity, y1: -Infinity }); const c = comps.get(k); c.bs.push(b); c.x0 = Math.min(c.x0, b.x0); c.x1 = Math.max(c.x1, b.x1); c.y0 = Math.min(c.y0, b.y0); c.y1 = Math.max(c.y1, b.y1); }
+  comps = Array.from(comps.values());
+  // thin lines (axes, arrows, connectors) tie the pieces of one drawing together
+  const link = comps.map((_, i) => i);
+  const root = i => { while (link[i] !== i) { link[i] = link[link[i]]; i = link[i]; } return i; };
+  gfx.paths.forEach((p, pi) => {
+    if (!p.thin || p.white || p.x1 - p.x0 > 0.9 * W || p.y1 - p.y0 > 0.9 * H || tables.some(tb => tb.paths.has(pi)) || inTable(p)) return;
+    const hit = [];
+    comps.forEach((c, i) => { if (p.x1 >= c.x0 - 3 && p.x0 <= c.x1 + 3 && p.y1 >= c.y0 - 3 && p.y0 <= c.y1 + 3) hit.push(i); });
+    if (!hit.length) return;
+    for (const h of hit) link[root(h)] = root(hit[0]);
+    comps[hit[0]].bs.push({ x0: p.x0, x1: p.x1, y0: p.y0, y1: p.y1, n: p.n, path: true, line: true });
+  });
+  const byComp = new Map();
+  comps.forEach((c, i) => { const k = root(i); if (!byComp.has(k)) byComp.set(k, []); byComp.get(k).push(...c.bs); });
+  const sizes = items.map(it => it.fs).sort((a, b) => a - b), bodyFs = sizes.length ? sizes[sizes.length >> 1] : 11;
+  const figs = [];
+  for (const bs of byComp.values()) {
+    const f = { x0: Math.min(...bs.map(b => b.x0)), x1: Math.max(...bs.map(b => b.x1)), y0: Math.min(...bs.map(b => b.y0)), y1: Math.max(...bs.map(b => b.y1)) };
+    const shapes = bs.filter(b => b.path && !b.line), pics = bs.filter(b => b.img);
+    const weight = shapes.reduce((a, b) => a + b.n, 0);
+    if (f.x1 - f.x0 < 36 || f.y1 - f.y0 < 30) continue;
+    // one whole picture and nothing drawn on it: the original image is taken out instead
+    if (pics.length === 1 && pics[0].img.plain && shapes.length <= 2 && weight <= 12) continue;
+    if (!pics.length && !(shapes.length >= 4 || weight >= 30)) continue;
+    if (!pics.length && shapes.every(b => b.plainBox) && new Set(shapes.map(b => Math.round(b.x0) + ':' + Math.round(b.x1))).size === 1) continue; // stacked shaded bands
+    const inner = items.filter(it => pdfInBox(f, (it.x + it.x1) / 2, it.y - it.fs * 0.3, 0));
+    if (inner.reduce((a, it) => a + it.str.trim().length, 0) > 350) continue; // a frame around text, not a drawing
+    // nearby tick labels belong to the drawing
+    const taken = new Set(inner);
+    for (let pass = 0; pass < 3; pass++) {
+      let grew = false;
+      for (const it of items) {
+        if (taken.has(it) || it.str.trim().length > 12 || it.fs > bodyFs * 1.05) continue;
+        const cx = (it.x + it.x1) / 2, top = it.y - it.fs, bot = it.y + it.fs * 0.25;
+        const beside = bot > f.y0 - 4 && top < f.y1 + 4 && it.x1 > f.x0 - 30 && it.x < f.x1 + 30;
+        const stacked = cx > f.x0 - 4 && cx < f.x1 + 4 && bot > f.y0 - 18 && top < f.y1 + 18;
+        if (!beside && !stacked) continue;
+        taken.add(it); grew = true;
+        f.x0 = Math.min(f.x0, it.x); f.x1 = Math.max(f.x1, it.x1); f.y0 = Math.min(f.y0, top); f.y1 = Math.max(f.y1, bot);
+      }
+      if (!grew) break;
+    }
+    f.x0 = Math.max(0, f.x0 - 4); f.y0 = Math.max(0, f.y0 - 4); f.x1 = Math.min(W, f.x1 + 4); f.y1 = Math.min(H, f.y1 + 4);
+    f.items = taken; f.imgs = pics.map(b => b.img);
+    figs.push(f);
+  }
+  return figs.sort((a, b) => a.y0 - b.y0);
 }
 
 /* ---------- running headers/footers and page numbers ---------- */
@@ -10280,7 +10574,7 @@ function pdfColumns(p) {
     if (b.length) right.push(pdfLineFromSegs(L, b));
   }
   flush();
-  p.lines = out; p.columns = true;
+  p.lines = out; p.columns = true; p.bandTop = bandTop;
 }
 
 /* ---------- inline text → Markdown ---------- */
@@ -10331,6 +10625,7 @@ function pdfJoinLines(lines) {
       const prev = runs[runs.length - 1];
       const first = L.runs.find(r => r.text.trim());
       if (prev && /[\p{L}]-$/u.test(prev.text.trimEnd()) && first && /^\p{Ll}/u.test(first.text.trimStart())) prev.text = prev.text.trimEnd().slice(0, -1); // word split across lines
+      else if (prev && /[\p{L}\p{N}]-$/u.test(prev.text.trimEnd()) && first && /^[\p{Lu}\p{N}]/u.test(first.text.trimStart())) prev.text = prev.text.trimEnd(); // code such as AB-1001-01
       else runs.push({ text: ' ', b: false, i: false, m: false, link: null });
     }
     runs.push(...L.runs.map(r => Object.assign({}, r)));
@@ -10413,10 +10708,7 @@ function pdfTryTable(stream, i, isHeading) {
   if (filled < 0.5 * out.length * cols.length) return null;
   const cellMd = (runs, head) => pdfRunsToMd(runs, { noBold: head }).replace(/\|/g, '\\|');
   const body = out.slice(1).map(r => r.cells.map(c => cellMd(c, false)));
-  const align = cols.map((c, ci) => {
-    const vals = body.map(r => r[ci]).filter(Boolean);
-    return vals.length && vals.filter(v => /^[^\p{L}]*\d[\d.,\s]*[^\p{L}]*$/u.test(v.replace(/\\/g, ''))).length >= 0.7 * vals.length ? '--:' : '---';
-  });
+  const align = pdfTableAlign(body, cols.length);
   return { table: true, head: out[0].cells.map(c => cellMd(c, true)), align, body, page: first.page, firstY: first.y, next: i + rows.length };
 }
 
@@ -10449,8 +10741,8 @@ async function pdfToMarkdown(file, base, onProgress) {
   const stream = [];
   for (const p of pages) {
     const seq = p.lines.slice();
-    for (const im of p.images) {
-      let k = p.columns ? seq.length : seq.findIndex(L => L.type === 'line' && L.y > im.y);
+    for (const im of p.images.concat(p.tables).sort((a, b) => a.y - b.y)) {
+      let k = p.columns && im.y >= p.bandTop ? seq.length : seq.findIndex(L => L.type === 'line' && L.y > im.y);
       if (k < 0) k = seq.length;
       seq.splice(k, 0, im);
     }
@@ -10460,7 +10752,9 @@ async function pdfToMarkdown(file, base, onProgress) {
 
   // body size, usual line spacing and heading sizes
   const sizeCount = new Map();
-  for (const L of lines) sizeCount.set(L.fs, (sizeCount.get(L.fs) || 0) + L.text.length);
+  for (const L of lines) if (!L.mono) sizeCount.set(L.fs, (sizeCount.get(L.fs) || 0) + L.text.length);
+  for (const e of stream) if (e.type === 'tbl') for (const [k, v] of e.sizes) sizeCount.set(k, (sizeCount.get(k) || 0) + v);
+  if (!sizeCount.size) for (const L of lines) sizeCount.set(L.fs, (sizeCount.get(L.fs) || 0) + L.text.length);
   let body = 11, top = -1;
   for (const [k, v] of sizeCount) if (v > top) { top = v; body = k; }
   const ratios = [];
@@ -10510,6 +10804,16 @@ async function pdfToMarkdown(file, base, onProgress) {
 
   for (let i = 0; i < stream.length; i++) {
     const L = stream[i];
+    if (L.type === 'tbl') {
+      flush(); endList();
+      const last = out[out.length - 1];
+      const firstOnPage = !stream.slice(0, i).some(e => e.page === L.page && e.type !== 'img');
+      if (last && last.table && firstOnPage && L.page === last.page + 1 && L.head.length === last.head.length) {
+        if (L.head.join('|') !== last.head.join('|')) last.body.push(L.head);
+        last.body.push(...L.body); last.page = L.page;
+      } else out.push({ table: true, head: L.head, align: L.align, body: L.body, page: L.page });
+      continue;
+    }
     if (L.type === 'img') {
       flush(); endList();
       const path = imgDir + '/pag' + L.page + '-' + L.n + '.' + L.ext;
@@ -10596,7 +10900,7 @@ async function pdfToMarkdown(file, base, onProgress) {
 
   const tableMd = t => ['| ' + t.head.join(' | ') + ' |', '| ' + t.align.join(' | ') + ' |'].concat(t.body.map(r => '| ' + r.join(' | ') + ' |')).join('\n');
   const md = out.map(b => (b.list ? b.rows.join('\n') : b.table ? tableMd(b) : b)).join('\n\n').replace(/\n{3,}/g, '\n\n') + '\n';
-  return { md, images, pages: numPages, scanned: shared.scanned, raster: shared.raster, chars: lines.reduce((a, L) => a + L.text.length, 0), columns: pages.some(p => p.columns) };
+  return { md, images, tables: out.filter(b => b.table).length, pages: numPages, scanned: shared.scanned, raster: shared.raster, chars: lines.reduce((a, L) => a + L.text.length, 0), columns: pages.some(p => p.columns) };
 }
 // length of the list marker inside the raw run text (which may have extra spaces the cleaned text does not)
 function pdfMarkerLen(runs, marker) {
@@ -10644,7 +10948,7 @@ async function ingest(entries) {
         const path = e.path.replace(PDF_RE, '.md');
         const dir = path.includes('/') ? path.slice(0, path.lastIndexOf('/') + 1) : '';
         for (const im of r.images) addAsset(dir + im.path, im.url);
-        const info = { file: e.file.name, pages: r.pages, images: r.images.length, noText: r.chars < 20 * r.pages, scanned: r.scanned, columns: r.columns };
+        const info = { file: e.file.name, pages: r.pages, tables: r.tables, images: r.images.length, noText: r.chars < 20 * r.pages, scanned: r.scanned, columns: r.columns };
         const existing = state.docs.findIndex(d => d.path === path);
         let d;
         if (existing >= 0) { d = state.docs[existing]; d.md = r.md; if (firstNew < 0) firstNew = existing; }

@@ -636,7 +636,10 @@ function renderNotices(w) {
   const cd = current();
   if (cd && cd.pdfInfo) {
     const p = cd.pdfInfo;
-    out.push('<div class="ui-notice">' + t('pdf.note', esc(p.file), count(p.pages, 'n.pages') + (p.images ? t('and') + count(p.images, 'n.images') : '')) + '</div>');
+    const found = [count(p.pages, 'n.pages')];
+    if (p.tables) found.push(count(p.tables, 'n.tables'));
+    if (p.images) found.push(count(p.images, 'n.images'));
+    out.push('<div class="ui-notice">' + t('pdf.note', esc(p.file), found.length > 1 ? found.slice(0, -1).join(', ') + t('and') + found[found.length - 1] : found[0]) + '</div>');
     if (p.noText) out.push('<div class="ui-notice">' + t('pdf.noText') + '</div>');
     else if (p.scanned) out.push('<div class="ui-notice">' + t('pdf.scanned', p.scanned) + '</div>');
     if (p.columns) out.push('<div class="ui-notice">' + t('pdf.columns') + '</div>');
@@ -736,7 +739,7 @@ async function ingest(entries) {
         const path = e.path.replace(PDF_RE, '.md');
         const dir = path.includes('/') ? path.slice(0, path.lastIndexOf('/') + 1) : '';
         for (const im of r.images) addAsset(dir + im.path, im.url);
-        const info = { file: e.file.name, pages: r.pages, images: r.images.length, noText: r.chars < 20 * r.pages, scanned: r.scanned, columns: r.columns };
+        const info = { file: e.file.name, pages: r.pages, tables: r.tables, images: r.images.length, noText: r.chars < 20 * r.pages, scanned: r.scanned, columns: r.columns };
         const existing = state.docs.findIndex(d => d.path === path);
         let d;
         if (existing >= 0) { d = state.docs[existing]; d.md = r.md; if (firstNew < 0) firstNew = existing; }
