@@ -1,0 +1,222 @@
+<title>Imprenta MD</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="Convierte Markdown (.md) a Word, PDF o imagen, y PDF a Markdown o Word, conservando el formato.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/*@@CSS@@*/
+</style>
+<!--@@CORE_LIBS@@-->
+
+<div class="ui-app" id="app">
+  <header class="ui-top">
+    <div class="ui-brand">
+      <svg class="ui-brand-mark" viewBox="0 0 32 32" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" style="color: var(--accent)">
+        <circle cx="16" cy="16" r="8.5"/>
+        <circle cx="16" cy="16" r="3.2" fill="currentColor" stroke="none"/>
+        <path d="M16 2v28M2 16h28"/>
+      </svg>
+      <div style="min-width: 0">
+        <div class="ui-brand-name">Imprenta MD</div>
+        <div class="ui-brand-sub">Markdown a Word, PDF o imagen · PDF a Markdown o Word</div>
+      </div>
+    </div>
+    <div class="ui-top-actions">
+      <button class="ui-btn" id="btn-open" type="button" title="Abrir archivos .md o .pdf (y sus imágenes)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M12 17v-6M9 14l3-3 3 3"/></svg>
+        <span>Abrir archivos</span>
+      </button>
+      <button class="ui-btn" id="btn-folder" type="button" title="Abrir una carpeta con archivos .md e imágenes">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+        <span>Abrir carpeta</span>
+      </button>
+      <input type="file" id="file-input" multiple accept=".md,.markdown,.mdown,.mkd,.mkdn,.txt,.pdf,application/pdf,image/*" hidden>
+      <input type="file" id="folder-input" webkitdirectory multiple hidden>
+    </div>
+  </header>
+
+  <main class="ui-work">
+    <section class="ui-pane ui-pane-source" aria-label="Texto Markdown">
+      <div class="ui-pane-head">
+        <div class="ui-tabs" id="tabs" role="tablist" aria-label="Documentos abiertos"></div>
+        <button class="ui-icon-btn" id="btn-new" type="button" title="Documento en blanco" aria-label="Documento en blanco">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+      </div>
+      <textarea id="editor" class="ui-editor" spellcheck="false" aria-label="Texto Markdown" placeholder="Escribe o pega Markdown aquí, o arrastra un archivo .md"></textarea>
+      <div class="ui-notices" id="notices" aria-live="polite"></div>
+      <div class="ui-src-foot"><span id="src-stats"></span><span id="src-enc"></span></div>
+    </section>
+
+    <section class="ui-pane ui-pane-preview" aria-label="Vista previa">
+      <div class="ui-pane-head">
+        <div class="ui-proof-meta" id="proof-meta"></div>
+        <label class="ui-zoom">Zoom
+          <select id="zoom">
+            <option value="fit">Ajustar</option>
+            <option value="1">100 %</option>
+            <option value="0.75">75 %</option>
+            <option value="0.5">50 %</option>
+          </select>
+        </label>
+      </div>
+      <div class="ui-desk" id="desk">
+        <div class="paper-frame" id="paper-frame">
+          <div class="paper" id="paper">
+            <article class="md theme-github" id="doc"></article>
+            <div class="breaks" id="breaks" aria-hidden="true"></div>
+          </div>
+        </div>
+        <div class="ui-empty" id="empty" hidden>
+          <h2>Arrastra aquí un archivo .md o .pdf</h2>
+          <p>Un PDF se convierte a Markdown editable, listo para descargar como .md o Word. También puedes soltar una carpeta completa: las imágenes que el documento enlaza se incluyen solas.</p>
+          <button class="ui-btn" id="btn-sample" type="button">Cargar el ejemplo</button>
+        </div>
+      </div>
+    </section>
+
+    <aside class="ui-pane ui-pane-export" aria-label="Exportar">
+      <div class="ui-pane-head"><span class="ui-label">Exportar</span></div>
+      <div class="ui-exp-body">
+        <div class="ui-field">
+          <span class="ui-label" id="lbl-format">Formato</span>
+          <div class="ui-seg ui-seg-format" role="radiogroup" aria-labelledby="lbl-format">
+            <label><input type="radio" name="format" value="docx" id="f-docx"><span>Word<small>.docx</small></span></label>
+            <label><input type="radio" name="format" value="pdf" id="f-pdf"><span>PDF<small>.pdf</small></span></label>
+            <label><input type="radio" name="format" value="image" id="f-image"><span>Imagen<small>.png · .jpg</small></span></label>
+            <label><input type="radio" name="format" value="md" id="f-md"><span>Markdown<small>.md</small></span></label>
+          </div>
+        </div>
+
+        <div class="ui-field">
+          <label class="ui-label" for="opt-theme">Estilo del documento</label>
+          <select id="opt-theme" class="ui-select">
+            <option value="github">GitHub (como se ve en GitHub)</option>
+            <option value="clasico">Clásico (serif, tipo informe)</option>
+            <option value="moderno">Moderno (corporativo)</option>
+          </select>
+        </div>
+
+        <div class="ui-field-row">
+          <div class="ui-field">
+            <label class="ui-label" for="opt-page">Página</label>
+            <select id="opt-page" class="ui-select"></select>
+          </div>
+          <div class="ui-field">
+            <label class="ui-label" for="opt-margin">Márgenes</label>
+            <select id="opt-margin" class="ui-select"></select>
+          </div>
+        </div>
+
+        <div class="ui-field">
+          <span class="ui-label" id="lbl-orient">Orientación</span>
+          <div class="ui-seg" role="radiogroup" aria-labelledby="lbl-orient">
+            <label><input type="radio" name="orient" value="portrait" id="o-portrait"><span>Vertical</span></label>
+            <label><input type="radio" name="orient" value="landscape" id="o-landscape"><span>Horizontal</span></label>
+          </div>
+        </div>
+
+        <div class="ui-field">
+          <span class="ui-label" id="lbl-fs">Tamaño de texto</span>
+          <div class="ui-seg" role="radiogroup" aria-labelledby="lbl-fs">
+            <label><input type="radio" name="fs" value="10" id="fs-10"><span>10 pt</span></label>
+            <label><input type="radio" name="fs" value="11" id="fs-11"><span>11 pt</span></label>
+            <label><input type="radio" name="fs" value="12" id="fs-12"><span>12 pt</span></label>
+          </div>
+        </div>
+
+        <div class="ui-fmt-opts" id="opts-pdf">
+          <div class="ui-field">
+            <span class="ui-label" id="lbl-pdfres">Resolución</span>
+            <div class="ui-seg" role="radiogroup" aria-labelledby="lbl-pdfres">
+              <label><input type="radio" name="pdfres" value="2" id="pr-2"><span>Estándar · 192 ppp</span></label>
+              <label><input type="radio" name="pdfres" value="3" id="pr-3"><span>Alta · 288 ppp</span></label>
+            </div>
+          </div>
+          <label class="ui-check"><input type="checkbox" id="opt-pdftext"><span>Texto seleccionable<small>Permite buscar y copiar el texto dentro del PDF.</small></span></label>
+          <label class="ui-check"><input type="checkbox" id="opt-pdfnum"><span>Números de página</span></label>
+          <p class="ui-hint">Las líneas punteadas de la vista previa marcan dónde empieza cada página.</p>
+        </div>
+
+        <div class="ui-fmt-opts" id="opts-docx">
+          <label class="ui-check"><input type="checkbox" id="opt-docxnum"><span>Números de página</span></label>
+          <p class="ui-hint">Se genera un Word nativo y editable: títulos con estilos de Word, listas, tablas, código coloreado y ecuaciones de Word.</p>
+        </div>
+
+        <div class="ui-fmt-opts" id="opts-md">
+          <div class="ui-field">
+            <span class="ui-label" id="lbl-mdimg">Imágenes del documento</span>
+            <div class="ui-seg" role="radiogroup" aria-labelledby="lbl-mdimg">
+              <label><input type="radio" name="mdimg" value="zip" id="mi-zip"><span>En carpeta (ZIP)</span></label>
+              <label><input type="radio" name="mdimg" value="embed" id="mi-embed"><span>Dentro del .md</span></label>
+            </div>
+          </div>
+          <p class="ui-hint">Se descarga el texto Markdown tal como está en el editor. Si tiene imágenes, van en una carpeta junto al .md o incrustadas en el propio archivo.</p>
+        </div>
+
+        <div class="ui-fmt-opts" id="opts-image">
+          <div class="ui-field">
+            <span class="ui-label" id="lbl-imgtype">Tipo</span>
+            <div class="ui-seg" role="radiogroup" aria-labelledby="lbl-imgtype">
+              <label><input type="radio" name="imgtype" value="png" id="it-png"><span>PNG</span></label>
+              <label><input type="radio" name="imgtype" value="jpg" id="it-jpg"><span>JPG</span></label>
+            </div>
+          </div>
+          <div class="ui-field">
+            <span class="ui-label" id="lbl-imgres">Resolución</span>
+            <div class="ui-seg" role="radiogroup" aria-labelledby="lbl-imgres">
+              <label><input type="radio" name="imgres" value="1" id="ir-1"><span>1×</span></label>
+              <label><input type="radio" name="imgres" value="2" id="ir-2"><span>2×</span></label>
+              <label><input type="radio" name="imgres" value="3" id="ir-3"><span>3×</span></label>
+            </div>
+          </div>
+          <div class="ui-field">
+            <span class="ui-label" id="lbl-imgmode">Disposición</span>
+            <div class="ui-seg" role="radiogroup" aria-labelledby="lbl-imgmode">
+              <label><input type="radio" name="imgmode" value="single" id="im-single"><span>Una sola imagen</span></label>
+              <label><input type="radio" name="imgmode" value="pages" id="im-pages"><span>Una por página</span></label>
+            </div>
+          </div>
+        </div>
+
+        <div class="ui-field">
+          <label class="ui-label" for="opt-fm">Metadatos (bloque YAML inicial)</label>
+          <select id="opt-fm" class="ui-select">
+            <option value="hide">Ocultar</option>
+            <option value="table">Mostrar como tabla</option>
+          </select>
+        </div>
+      </div>
+      <div class="ui-exp-foot">
+        <button class="ui-btn ui-btn-primary ui-btn-lg" id="btn-export" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>
+          <span id="export-label">Descargar PDF</span>
+        </button>
+        <div class="ui-out-name" id="out-name"></div>
+        <button class="ui-link-btn" id="btn-export-all" type="button" hidden></button>
+      </div>
+    </aside>
+  </main>
+</div>
+
+<div class="ui-drop" id="drop" hidden>
+  <div class="ui-drop-box">
+    <strong>Suelta tus archivos</strong>
+    <span>Archivos .md o .pdf, carpetas completas o las imágenes que usa el documento.</span>
+  </div>
+</div>
+<div class="ui-busy" id="busy" hidden>
+  <div class="ui-busy-card" role="status" aria-live="polite">
+    <div class="ui-busy-title" id="busy-title">Generando…</div>
+    <div class="ui-busy-step" id="busy-step"></div>
+    <div class="ui-bar"><i id="busy-bar"></i></div>
+  </div>
+</div>
+<div class="ui-toast" id="toast" hidden role="status" aria-live="polite"></div>
+
+<!--@@KATEX_CSS@@-->
+<!--@@LAZY_LIBS@@-->
+<script>
+/*@@APP@@*/
+</script>
